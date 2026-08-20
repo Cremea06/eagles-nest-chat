@@ -11,7 +11,7 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Eagles Nest Chat</title>
+      <title>Eagle Nest Chat</title>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
