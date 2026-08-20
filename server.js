@@ -166,31 +166,55 @@ io.on('connection', (socket) => {
   // Check if someone is talking to Cranky Eagle
   const lowerMsg = msg.toLowerCase();
   if (lowerMsg.includes('@cranky') || lowerMsg.includes('cranky eagle') || lowerMsg.includes('cranky')) {
-    
-    // Cranky Eagle's possible replies
-    const replies = [
-      "What now? I'm busy watching the flags.",
-      "Ugh. You again?",
-      "Make it quick. The human is shipping orders.",
-      "Sales are final. Tracking number is your friend.",
-      "Don't waste my time unless it's important.",
-      "I'm listening... barely.",
-      "Yes?",
-      "Spit it out.",
-      "This better be good."
-    ];
+  
+  let reply = "";
 
-    const randomReply = replies[Math.floor(Math.random() * replies.length)];
-
-    // Small delay so it feels more natural
-    setTimeout(() => {
-      io.emit('chat message', {
-        username: 'Cranky Eagle',
-        message: randomReply
-      });
-    }, 800);
+  // Context-aware replies
+  if (lowerMsg.includes("refund") || lowerMsg.includes("return") || lowerMsg.includes("money back") || lowerMsg.includes("cancel")) {
+    reply = "No. Sales are final. Tracking number is your only friend now.";
   }
-});
+  else if (lowerMsg.includes("hello") || lowerMsg.includes("hi") || lowerMsg.includes("hey")) {
+    reply = "Yeah, yeah. Hello. What do you want?";
+  }
+  else if (lowerMsg.includes("help") || lowerMsg.includes("support") || lowerMsg.includes("problem") || lowerMsg.includes("issue")) {
+    reply = "Possible real problem? Fine. I'll reluctantly flag it for the human. Don't get used to it.";
+  }
+  else if (lowerMsg.includes("flag") || lowerMsg.includes("order") || lowerMsg.includes("shipping") || lowerMsg.includes("tracking")) {
+    reply = "The human handles the flags and tracking numbers. I'm just the grumpy gatekeeper.";
+  }
+  else if (lowerMsg.includes("thank") || lowerMsg.includes("thanks")) {
+    reply = "You're welcome. Now stop bothering me.";
+  }
+  else if (lowerMsg.includes("how are you") || lowerMsg.includes("how's it going")) {
+    reply = "Busy. Annoyed. Same as always.";
+  }
+  else if (lowerMsg.includes("who are you") || lowerMsg.includes("what are you")) {
+    reply = "I'm Cranky Eagle. I run this place while the human ships flags. Any other obvious questions?";
+  }
+  else {
+    // Default varied replies
+    const defaults = [
+      "What now?",
+      "Make it quick.",
+      "I'm listening... barely.",
+      "Spit it out.",
+      "This better be important.",
+      "Ugh. Fine, I'm here.",
+      "Yes?",
+      "Don't waste my time.",
+      "The human is busy. Talk to me instead... unfortunately."
+    ];
+    reply = defaults[Math.floor(Math.random() * defaults.length)];
+  }
+
+  // Send the reply after a short delay
+  setTimeout(() => {
+    io.emit('chat message', {
+      username: 'Cranky Eagle',
+      message: reply
+    });
+  }, 700 + Math.random() * 600); // slight random delay feels more natural
+}
 
   socket.on('disconnect', () => {
     if (socket.username) {
