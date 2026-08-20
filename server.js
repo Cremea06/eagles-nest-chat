@@ -13,73 +13,70 @@ app.get('/', (req, res) => {
     <head>
       <title>Eagles Nest Chat</title>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { 
-    font-family: Arial, sans-serif; 
-    background: #0a1628; 
-    color: white; 
-    padding: 12px; 
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-  #login { 
-    max-width: 400px; 
-    margin: 80px auto; 
-    text-align: center; 
-  }
-  #chat { 
-    display: none; 
-    flex-direction: column;
-    height: 100%;
-  }
-  h2 { margin-bottom: 12px; font-size: 1.4rem; }
-  #messages { 
-    flex: 1;
-    overflow-y: auto; 
-    border: 2px solid #c41e3a; 
-    padding: 12px; 
-    margin-bottom: 12px; 
-    background: #002868; 
-    border-radius: 8px; 
-  }
-  #form { 
-    display: flex; 
-    gap: 8px; 
-  }
-  input { 
-    padding: 12px; 
-    border: none; 
-    border-radius: 6px; 
-    font-size: 16px; 
-    flex: 1;
-    min-width: 0;
-  }
-  button { 
-    background: #c41e3a; 
-    color: white; 
-    border: none; 
-    padding: 12px 16px; 
-    border-radius: 6px; 
-    cursor: pointer; 
-    font-size: 16px; 
-    white-space: nowrap;
-  }
-  .msg { margin: 8px 0; word-wrap: break-word; }
-  .system { color: #aaa; font-style: italic; }
-  .username { color: #ff6b6b; font-weight: bold; }
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+          font-family: Arial, sans-serif; 
+          background: #0a1628; 
+          color: white; 
+          padding: 12px; 
+          height: 100vh;
+          display: flex;
+          flex-direction: column;
+        }
+        #login { 
+          max-width: 400px; 
+          margin: 80px auto; 
+          text-align: center; 
+        }
+        #chat { 
+          display: none; 
+          flex-direction: column;
+          height: 100%;
+        }
+        h2 { margin-bottom: 12px; font-size: 1.4rem; }
+        #messages { 
+          flex: 1;
+          overflow-y: auto; 
+          border: 2px solid #c41e3a; 
+          padding: 12px; 
+          margin-bottom: 12px; 
+          background: #002868; 
+          border-radius: 8px; 
+        }
+        #form { 
+          display: flex; 
+          gap: 8px; 
+        }
+        input { 
+          padding: 12px; 
+          border: none; 
+          border-radius: 6px; 
+          font-size: 16px; 
+          flex: 1;
+          min-width: 0;
+        }
+        button { 
+          background: #c41e3a; 
+          color: white; 
+          border: none; 
+          padding: 12px 16px; 
+          border-radius: 6px; 
+          cursor: pointer; 
+          font-size: 16px; 
+          white-space: nowrap;
+        }
+        .msg { margin: 8px 0; word-wrap: break-word; }
+        .system { color: #aaa; font-style: italic; }
+        .username { color: #ff6b6b; font-weight: bold; }
 
-  /* Mobile adjustments */
-  @media (max-width: 600px) {
-    body { padding: 8px; }
-    h2 { font-size: 1.2rem; }
-    input, button { font-size: 16px; } /* prevents zoom on iPhone */
-  }
-</style>
+        @media (max-width: 600px) {
+          body { padding: 8px; }
+          h2 { font-size: 1.2rem; }
+        }
+      </style>
     </head>
     <body>
-      <!-- Login screen -->
       <div id="login">
         <h2>Welcome to Eagles Nest</h2>
         <p>Enter a username to join the chat</p>
@@ -88,7 +85,6 @@ app.get('/', (req, res) => {
         <button onclick="joinChat()">Join Chat</button>
       </div>
 
-      <!-- Chat screen -->
       <div id="chat">
         <h2>Eagles Nest Chat</h2>
         <div id="messages"></div>
@@ -157,64 +153,62 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat message', (msg) => {
-  // First, send the user's message normally
-  io.emit('chat message', {
-    username: socket.username || 'Anonymous',
-    message: msg
-  });
-
-  // Check if someone is talking to Cranky Eagle
-  const lowerMsg = msg.toLowerCase();
-  if (lowerMsg.includes('@cranky') || lowerMsg.includes('cranky eagle') || lowerMsg.includes('cranky')) {
-  
-  let reply = "";
-
-  // Context-aware replies
-  if (lowerMsg.includes("refund") || lowerMsg.includes("return") || lowerMsg.includes("money back") || lowerMsg.includes("cancel")) {
-    reply = "No. Sales are final. Tracking number is your only friend now.";
-  }
-  else if (lowerMsg.includes("hello") || lowerMsg.includes("hi") || lowerMsg.includes("hey")) {
-    reply = "Yeah, yeah. Hello. What do you want?";
-  }
-  else if (lowerMsg.includes("help") || lowerMsg.includes("support") || lowerMsg.includes("problem") || lowerMsg.includes("issue")) {
-    reply = "Possible real problem? Fine. I'll reluctantly flag it for the human. Don't get used to it.";
-  }
-  else if (lowerMsg.includes("flag") || lowerMsg.includes("order") || lowerMsg.includes("shipping") || lowerMsg.includes("tracking")) {
-    reply = "The human handles the flags and tracking numbers. I'm just the grumpy gatekeeper.";
-  }
-  else if (lowerMsg.includes("thank") || lowerMsg.includes("thanks")) {
-    reply = "You're welcome. Now stop bothering me.";
-  }
-  else if (lowerMsg.includes("how are you") || lowerMsg.includes("how's it going")) {
-    reply = "Busy. Annoyed. Same as always.";
-  }
-  else if (lowerMsg.includes("who are you") || lowerMsg.includes("what are you")) {
-    reply = "I'm Cranky Eagle. I run this place while the human ships flags. Any other obvious questions?";
-  }
-  else {
-    // Default varied replies
-    const defaults = [
-      "What now?",
-      "Make it quick.",
-      "I'm listening... barely.",
-      "Spit it out.",
-      "This better be important.",
-      "Ugh. Fine, I'm here.",
-      "Yes?",
-      "Don't waste my time.",
-      "The human is busy. Talk to me instead... unfortunately."
-    ];
-    reply = defaults[Math.floor(Math.random() * defaults.length)];
-  }
-
-  // Send the reply after a short delay
-  setTimeout(() => {
+    // Send the user's message
     io.emit('chat message', {
-      username: 'Cranky Eagle',
-      message: reply
+      username: socket.username || 'Anonymous',
+      message: msg
     });
-  }, 700 + Math.random() * 600); // slight random delay feels more natural
-}
+
+    // Cranky Eagle logic
+    const lowerMsg = msg.toLowerCase();
+    if (lowerMsg.includes('@cranky') || lowerMsg.includes('cranky eagle') || lowerMsg.includes('cranky')) {
+      
+      let reply = "";
+
+      if (lowerMsg.includes("refund") || lowerMsg.includes("return") || lowerMsg.includes("money back") || lowerMsg.includes("cancel")) {
+        reply = "No. Sales are final. Tracking number is your only friend now.";
+      }
+      else if (lowerMsg.includes("hello") || lowerMsg.includes("hi") || lowerMsg.includes("hey")) {
+        reply = "Yeah, yeah. Hello. What do you want?";
+      }
+      else if (lowerMsg.includes("help") || lowerMsg.includes("support") || lowerMsg.includes("problem") || lowerMsg.includes("issue")) {
+        reply = "Possible real problem? Fine. I'll reluctantly flag it for the human. Don't get used to it.";
+      }
+      else if (lowerMsg.includes("flag") || lowerMsg.includes("order") || lowerMsg.includes("shipping") || lowerMsg.includes("tracking")) {
+        reply = "The human handles the flags and tracking numbers. I'm just the grumpy gatekeeper.";
+      }
+      else if (lowerMsg.includes("thank") || lowerMsg.includes("thanks")) {
+        reply = "You're welcome. Now stop bothering me.";
+      }
+      else if (lowerMsg.includes("how are you") || lowerMsg.includes("how's it going")) {
+        reply = "Busy. Annoyed. Same as always.";
+      }
+      else if (lowerMsg.includes("who are you") || lowerMsg.includes("what are you")) {
+        reply = "I'm Cranky Eagle. I run this place while the human ships flags. Any other obvious questions?";
+      }
+      else {
+        const defaults = [
+          "What now?",
+          "Make it quick.",
+          "I'm listening... barely.",
+          "Spit it out.",
+          "This better be important.",
+          "Ugh. Fine, I'm here.",
+          "Yes?",
+          "Don't waste my time.",
+          "The human is busy. Talk to me instead... unfortunately."
+        ];
+        reply = defaults[Math.floor(Math.random() * defaults.length)];
+      }
+
+      setTimeout(() => {
+        io.emit('chat message', {
+          username: 'Cranky Eagle',
+          message: reply
+        });
+      }, 700 + Math.random() * 600);
+    }
+  });
 
   socket.on('disconnect', () => {
     if (socket.username) {
