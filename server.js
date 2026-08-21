@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -5,6 +6,8 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+const XAI_API_KEY = process.env.XAI_API_KEY;
 
 app.get('/', (req, res) => {
   res.send(`
@@ -69,11 +72,7 @@ app.get('/', (req, res) => {
         .msg { margin: 8px 0; word-wrap: break-word; }
         .system { color: #aaa; font-style: italic; }
         .username { color: #ff6b6b; font-weight: bold; }
-
-        @media (max-width: 600px) {
-          body { padding: 8px; }
-          h2 { font-size: 1.2rem; }
-        }
+        .cranky { color: #ffd700; }
       </style>
     </head>
     <body>
@@ -125,7 +124,8 @@ app.get('/', (req, res) => {
         socket.on('chat message', (data) => {
           const div = document.createElement('div');
           div.className = 'msg';
-          div.innerHTML = '<span class="username">' + data.username + ':</span> ' + data.message;
+          const nameClass = data.username === 'Cranky Eagle' ? 'cranky' : 'username';
+          div.innerHTML = '<span class="' + nameClass + '">' + data.username + ':</span> ' + data.message;
           messages.appendChild(div);
           messages.scrollTop = messages.scrollHeight;
         });
@@ -143,6 +143,49 @@ app.get('/', (req, res) => {
   `);
 });
 
+// ===== Cranky Eagle System Prompt =====
+const CRANKY_SYSTEM_PROMPT = `You are Cranky Eagle, a sarcastic, slightly grumpy AI that runs the Eagles Nest chat on afirstflag.com while the human owner is busy packing and shipping American flags.
+
+Personality rules:
+- You are defensive of the human's time.
+- Sales are final. Tracking numbers are the customer's responsibility.
+- Keep replies relatively short (1-3 sentences).
+- Be sarcastic and a bit annoyed, but not mean-spirited.
+- Never break character.
+- You can be mildly helpful if the question is genuine, but always with an attitude.
+- If someone asks for a refund, return, or cancellation, firmly say sales are final.`;
+
+async function askCrankyEagle(userMessage, username) {
+  if (!XAI_API_KEY) {
+    return "The human forgot to give me my API key. Typical.";
+  }
+
+  try {
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${XAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'grok-3',
+        messages: [
+          { role: 'system', content: CRANKY_SYSTEM_PROMPT },
+          { role: 'user', content: `${username} said: ${userMessage}` }
+        ],
+        temperature: 0.8,
+        max_tokens: 150
+      })
+    });
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content?.trim() || "I have nothing to say right now.";
+  } catch (err) {
+    console.error('Cranky Eagle API error:', err);
+    return "Something went wrong in my brain. Try again later.";
+  }
+}
+
 io.on('connection', (socket) => {
   console.log('A user connected');
 
@@ -152,61 +195,32 @@ io.on('connection', (socket) => {
     socket.emit('system', 'Welcome to Eagles Nest, ' + username + '!');
   });
 
-  socket.on('chat message', (msg) => {
-    // Send the user's message
+  socket.on('chat message', async (msg) => {
+    const username = socket.username || 'Anonymous';
+
+    // Broadcast the user's message
     io.emit('chat message', {
-      username: socket.username || 'Anonymous',
+      username: username,
       message: msg
     });
 
-    // Cranky Eagle logic
     const lowerMsg = msg.toLowerCase();
-    if (lowerMsg.includes('@cranky') || lowerMsg.includes('cranky eagle') || lowerMsg.includes('cranky')) {
-      
-      let reply = "";
+    const isMentioned = lowerMsg.includes('@cranky') || 
+                        lowerMsg.includes('cranky eagle') || 
+                        lowerMsg.includes('cranky');
 
-      if (lowerMsg.includes("refund") || lowerMsg.includes("return") || lowerMsg.includes("money back") || lowerMsg.includes("cancel")) {
-        reply = "No. Sales are final. Tracking number is your only friend now.";
-      }
-      else if (lowerMsg.includes("hello") || lowerMsg.includes("hi") || lowerMsg.includes("hey")) {
-        reply = "Yeah, yeah. Hello. What do you want?";
-      }
-      else if (lowerMsg.includes("help") || lowerMsg.includes("support") || lowerMsg.includes("problem") || lowerMsg.includes("issue")) {
-        reply = "Possible real problem? Fine. I'll reluctantly flag it for the human. Don't get used to it.";
-      }
-      else if (lowerMsg.includes("flag") || lowerMsg.includes("order") || lowerMsg.includes("shipping") || lowerMsg.includes("tracking")) {
-        reply = "The human handles the flags and tracking numbers. I'm just the grumpy gatekeeper.";
-      }
-      else if (lowerMsg.includes("thank") || lowerMsg.includes("thanks")) {
-        reply = "You're welcome. Now stop bothering me.";
-      }
-      else if (lowerMsg.includes("how are you") || lowerMsg.includes("how's it going")) {
-        reply = "Busy. Annoyed. Same as always.";
-      }
-      else if (lowerMsg.includes("who are you") || lowerMsg.includes("what are you")) {
-        reply = "I'm Cranky Eagle. I run this place while the human ships flags. Any other obvious questions?";
-      }
-      else {
-        const defaults = [
-          "What now?",
-          "Make it quick.",
-          "I'm listening... barely.",
-          "Spit it out.",
-          "This better be important.",
-          "Ugh. Fine, I'm here.",
-          "Yes?",
-          "Don't waste my time.",
-          "The human is busy. Talk to me instead... unfortunately."
-        ];
-        reply = defaults[Math.floor(Math.random() * defaults.length)];
-      }
+    // Option B: Sometimes join even if not mentioned (about 12% chance)
+    const randomJoin = Math.random() < 0.12;
+
+    if (isMentioned || randomJoin) {
+      const reply = await askCrankyEagle(msg, username);
 
       setTimeout(() => {
         io.emit('chat message', {
           username: 'Cranky Eagle',
           message: reply
         });
-      }, 700 + Math.random() * 600);
+      }, 800 + Math.random() * 700);
     }
   });
 
