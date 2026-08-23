@@ -10,11 +10,16 @@ const io = new Server(server);
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
 const cors = require('cors');
+
 app.use(cors({
-  origin: true,               // reflect the request origin
+  origin: ['https://afirstflag.com', 'https://www.afirstflag.com'],
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
+  allowedHeaders: ['Content-Type'],
+  credentials: false
 }));
+
+// Explicitly handle preflight for the API routes
+app.options('/api/*', cors());
 
 // ===== Online Visitors Tracker =====
 const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
