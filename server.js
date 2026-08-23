@@ -9,6 +9,21 @@ const io = new Server(server);
 
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
+// ===== Online Visitors Tracker =====
+const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
+
+// Clean up inactive visitors every 30 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, lastSeen] of activeVisitors.entries()) {
+    if (now - lastSeen > 45000) { // 45 seconds of inactivity = gone
+      activeVisitors.delete(id);
+    }
+  }
+}, 30000);
+
+app.use(express.json());
+
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -141,6 +156,20 @@ app.get('/', (req, res) => {
     </body>
     </html>
   `);
+});
+
+// Public endpoint – returns current online count
+app.get('/api/online', (req, res) => {
+  res.json({ online: activeVisitors.size });
+});
+
+// Heartbeat endpoint – main site calls this
+app.post('/api/heartbeat', express.json(), (req, res) => {
+  const { visitorId } = req.body;
+  if (visitorId) {
+    activeVisitors.set(visitorId, Date.now());
+  }
+  res.json({ success: true });
 });
 
 // ===== Cranky Eagle System Prompt =====
