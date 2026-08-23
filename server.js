@@ -18,9 +18,6 @@ app.use(cors({
   credentials: false
 }));
 
-// Explicitly handle preflight for the API routes
-app.options('/api/*', cors());
-
 // ===== Online Visitors Tracker =====
 const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
 
