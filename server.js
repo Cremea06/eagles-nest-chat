@@ -21,6 +21,19 @@ app.use(cors({
 // ===== Online Visitors Tracker =====
 const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
 
+const fs = require('fs');
+const path = require('path');
+
+// Load flagholders list
+let flagholders = [];
+try {
+  const data = fs.readFileSync(path.join(__dirname, 'flagholders.json'), 'utf8');
+  flagholders = JSON.parse(data);
+  console.log(`Loaded ${flagholders.length} flagholder tracking numbers`);
+} catch (err) {
+  console.error('Could not load flagholders.json:', err.message);
+}
+
 // Clean up inactive visitors every 30 seconds
 setInterval(() => {
   const now = Date.now();
@@ -101,11 +114,13 @@ app.get('/', (req, res) => {
     </head>
     <body>
       <div id="login">
-        <h2>Welcome to Eagles Nest</h2>
-        <p>Enter a username to join the chat</p>
-        <input id="usernameInput" placeholder="Your username" maxlength="20" />
-        <br><br>
-        <button onclick="joinChat()">Join Chat</button>
+       <h2>Welcome to Eagles Nest</h2>
+      <p>Enter a username to join the chat</p>
+      <input id="usernameInput" placeholder="Your username" maxlength="20" />
+      <br><br>
+      <input id="trackingInput" placeholder="Tracking # (optional)" maxlength="40" />
+      <br><br>
+      <button onclick="joinChat()">Join Chat</button>
       </div>
 
       <div id="chat">
@@ -123,15 +138,20 @@ app.get('/', (req, res) => {
         let username = '';
 
         function joinChat() {
-          username = document.getElementById('usernameInput').value.trim();
-          if (username.length < 2) {
-            alert('Username must be at least 2 characters');
-            return;
-          }
-          document.getElementById('login').style.display = 'none';
-          document.getElementById('chat').style.display = 'block';
-          socket.emit('join', username);
+        const username = document.getElementById('usernameInput').value.trim();
+        const tracking = document.getElementById('trackingInput').value.trim();
+
+        if (username.length < 2) {
+        alert('Username must be at least 2 characters');
+        return;
         }
+
+       document.getElementById('login').style.display = 'none';
+       document.getElementById('chat').style.display = 'block';
+
+        // Send both username and tracking number
+       socket.emit('join', { username, tracking });
+      }
 
         const form = document.getElementById('form');
         const input = document.getElementById('input');
@@ -227,22 +247,48 @@ async function askCrankyEagle(userMessage, username) {
 io.on('connection', (socket) => {
   console.log('A user connected');
 
-  socket.on('join', (username) => {
-    socket.username = username;
-    socket.broadcast.emit('system', username + ' joined the chat');
-    socket.emit('system', 'Welcome to Eagles Nest, ' + username + '!');
+
+  //blocking this old version of join, since we will now include a tracking number in the join event
+//socket.on('join', (username) => {
+//    socket.username = username;
+//    socket.broadcast.emit('system', username + ' joined the chat');
+//    socket.emit('system', 'Welcome to Eagles Nest, ' + username + '!');
+//  });
+
+socket.on('join', (data) => {
+  // data can be either a string (old way) or an object { username, tracking }
+  let username, tracking = '';
+
+  if (typeof data === 'string') {
+    username = data;
+  } else {
+    username = data.username;
+    tracking = (data.tracking || '').trim();
+  }
+
+  socket.username = username;
+
+  // Check if tracking number is valid
+  const isFlagholder = tracking && flagholders.includes(tracking);
+  socket.isFlagholder = isFlagholder;
+
+  const displayName = isFlagholder ? `${username} (flagholder)` : username;
+
+  socket.broadcast.emit('system', `${displayName} joined the chat`);
+  socket.emit('system', `Welcome to Eagles Nest, ${displayName}!`);
+});
+
+ socket.on('chat message', async (msg) => {
+  const username = socket.username || 'Anonymous';
+  const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+
+  // Broadcast the user's message
+  io.emit('chat message', {
+    username: displayName,
+    message: msg
   });
 
-  socket.on('chat message', async (msg) => {
-    const username = socket.username || 'Anonymous';
-
-    // Broadcast the user's message
-    io.emit('chat message', {
-      username: username,
-      message: msg
-    });
-
-    const lowerMsg = msg.toLowerCase();
+      const lowerMsg = msg.toLowerCase();
     const isMentioned = lowerMsg.includes('@cranky') || 
                         lowerMsg.includes('cranky eagle') || 
                         lowerMsg.includes('cranky');
