@@ -329,14 +329,6 @@ async function askCrankyEagle(userMessage, username) {
 io.on('connection', (socket) => {
   console.log('A user connected');
 
-
-  //blocking this old version of join, since we will now include a tracking number in the join event
-//socket.on('join', (username) => {
-//    socket.username = username;
-//    socket.broadcast.emit('system', username + ' joined the chat');
-//    socket.emit('system', 'Welcome to Eagles Nest, ' + username + '!');
-//  });
-
 socket.on('join', (data) => {
   // data can be either a string (old way) or an object { username, tracking }
   let username, tracking = '';
@@ -385,13 +377,7 @@ socket.on('join', (data) => {
 
   // --- Keep your existing Cranky Eagle logic below this point ---
 
-  // Broadcast the user's message
-  io.emit('chat message', {
-    username: displayName,
-    message: msg
-  });
-
-      const lowerMsg = msg.toLowerCase();
+    const lowerMsg = msg.toLowerCase();
     const isMentioned = lowerMsg.includes('@cranky') || 
                         lowerMsg.includes('cranky eagle') || 
                         lowerMsg.includes('cranky');
