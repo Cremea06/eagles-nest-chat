@@ -34,6 +34,88 @@ try {
   console.error('Could not load flagholders.json:', err.message);
 }
 
+// ===== Chat Commands =====
+function handleCommand(socket, msg) {
+  const parts = msg.trim().split(/\s+/);
+  const command = parts[0].toLowerCase();
+  const args = parts.slice(1);
+
+  const username = socket.username || 'Anonymous';
+  const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+
+  // /help or /?
+  if (command === '/help' || command === '/?') {
+    const helpText = `
+Available commands:
+/help or /?          - Show this help
+/me <action>         - Perform an action (e.g. /me waves)
+/who                 - Show who is online
+/mute <username>     - Mute a user (temporary)
+    `.trim();
+
+    socket.emit('system', helpText);
+    return true;
+  }
+
+  // /me <action>
+  if (command === '/me') {
+    const action = args.join(' ');
+    if (!action) {
+      socket.emit('system', 'Usage: /me <action>');
+      return true;
+    }
+    io.emit('system', `* ${displayName} ${action}`);
+    return true;
+  }
+
+  // /who
+  if (command === '/who') {
+    const users = [];
+    for (const [id, s] of io.of('/').sockets) {
+      if (s.username) {
+        const name = s.isFlagholder ? `${s.username} (flagholder)` : s.username;
+        users.push(name);
+      }
+    }
+    const list = users.length > 0 ? users.join(', ') : 'No one else is here.';
+    socket.emit('system', `Currently online: ${list}`);
+    return true;
+  }
+
+  // /mute <username>
+  if (command === '/mute') {
+    const target = args[0];
+    if (!target) {
+      socket.emit('system', 'Usage: /mute <username>');
+      return true;
+    }
+
+    // Find the target socket
+    let targetSocket = null;
+    for (const [id, s] of io.of('/').sockets) {
+      if (s.username && s.username.toLowerCase() === target.toLowerCase()) {
+        targetSocket = s;
+        break;
+      }
+    }
+
+    if (!targetSocket) {
+      socket.emit('system', `User "${target}" is not online.`);
+      return true;
+    }
+
+    // Mute for 5 minutes (simple version)
+    targetSocket.mutedUntil = Date.now() + 5 * 60 * 1000;
+    socket.emit('system', `You muted ${target} for 5 minutes.`);
+    targetSocket.emit('system', `You have been muted for 5 minutes by ${displayName}.`);
+    return true;
+  }
+
+  // Unknown command
+  socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
+  return true;
+}
+
 // Clean up inactive visitors every 30 seconds
 setInterval(() => {
   const now = Date.now();
@@ -280,7 +362,28 @@ socket.on('join', (data) => {
 
  socket.on('chat message', async (msg) => {
   const username = socket.username || 'Anonymous';
+
+  // Check if user is muted
+  if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
+    socket.emit('system', 'You are currently muted.');
+    return;
+  }
+
+  // Handle commands (messages starting with /)
+  if (msg.trim().startsWith('/')) {
+    handleCommand(socket, msg);
+    return;
+  }
+
   const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+
+  // Normal message
+  io.emit('chat message', {
+    username: displayName,
+    message: msg
+  });
+
+  // --- Keep your existing Cranky Eagle logic below this point ---
 
   // Broadcast the user's message
   io.emit('chat message', {
