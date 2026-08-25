@@ -476,13 +476,13 @@ async function askCrankyEagle(userMessage, username) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': \`Bearer \${XAI_API_KEY}\`
+        'Authorization': `Bearer ${XAI_API_KEY}`
       },
       body: JSON.stringify({
         model: 'grok-3',
         messages: [
           { role: 'system', content: CRANKY_SYSTEM_PROMPT },
-          { role: 'user', content: \`\${username} said: \${userMessage}\` }
+          { role: 'user', content: `${username} said: ${userMessage}` }
         ],
         temperature: 0.8,
         max_tokens: 150
@@ -500,57 +500,56 @@ async function askCrankyEagle(userMessage, username) {
 io.on('connection', (socket) => {
   console.log('A user connected');
 
-socket.on('join', (data) => {
-  // data can be either a string (old way) or an object { username, tracking }
-  let username, tracking = '';
+  socket.on('join', (data) => {
+    // data can be either a string (old way) or an object { username, tracking }
+    let username, tracking = '';
 
-  if (typeof data === 'string') {
-    username = data;
-  } else {
-    username = data.username;
-    tracking = (data.tracking || '').trim();
-  }
+    if (typeof data === 'string') {
+      username = data;
+    } else {
+      username = data.username;
+      tracking = (data.tracking || '').trim();
+    }
 
-  socket.username = username;
+    socket.username = username;
 
-  // Check if tracking number is valid
-  const isFlagholder = tracking && flagholders.includes(tracking);
-  socket.isFlagholder = isFlagholder;
+    // Check if tracking number is valid
+    const isFlagholder = tracking && flagholders.includes(tracking);
+    socket.isFlagholder = isFlagholder;
 
-  const displayName = isFlagholder ? \`\${username} (flagholder)\` : username;
+    const displayName = isFlagholder ? `${username} (flagholder)` : username;
 
-  socket.broadcast.emit('system', \`\${displayName} joined the chat\`);
-  socket.emit('system', \`Welcome to Eagles Nest, \${displayName}!\`);
-});
-
- socket.on('chat message', async (msg) => {
-  const username = socket.username || 'Anonymous';
-
-  // Check if user is muted
-  if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
-    socket.emit('system', 'You are currently muted.');
-    return;
-  }
-
-  // Handle commands (messages starting with /)
-  if (msg.trim().startsWith('/')) {
-    handleCommand(socket, msg);
-    return;
-  }
-
-  const displayName = socket.isFlagholder ? \`\${username} (flagholder)\` : username;
-
-  // Normal message
-  io.emit('chat message', {
-    username: displayName,
-    message: msg
+    socket.broadcast.emit('system', `${displayName} joined the chat`);
+    socket.emit('system', `Welcome to Eagles Nest, ${displayName}!`);
   });
 
-  // --- Keep your existing Cranky Eagle logic below this point ---
+  socket.on('chat message', async (msg) => {
+    const username = socket.username || 'Anonymous';
 
+    // Check if user is muted
+    if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
+      socket.emit('system', 'You are currently muted.');
+      return;
+    }
+
+    // Handle commands (messages starting with /)
+    if (msg.trim().startsWith('/')) {
+      handleCommand(socket, msg);
+      return;
+    }
+
+    const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+
+    // Normal message
+    io.emit('chat message', {
+      username: displayName,
+      message: msg
+    });
+
+    // --- Cranky Eagle logic ---
     const lowerMsg = msg.toLowerCase();
-    const isMentioned = lowerMsg.includes('@cranky') || 
-                        lowerMsg.includes('cranky eagle') || 
+    const isMentioned = lowerMsg.includes('@cranky') ||
+                        lowerMsg.includes('cranky eagle') ||
                         lowerMsg.includes('cranky');
 
     // Option B: Sometimes join even if not mentioned (about 12% chance)
