@@ -298,7 +298,7 @@ app.get('/', (req, res) => {
       margin-right: 0.35rem;
     }
 
-    .msg .cranky {
+    .msg .neagle {
       color: #ffd700;
       font-weight: 700;
       margin-right: 0.35rem;
@@ -421,7 +421,7 @@ app.get('/', (req, res) => {
     socket.on('chat message', (data) => {
       const div = document.createElement('div');
       div.className = 'msg';
-      const nameClass = data.username === 'Cranky Eagle' ? 'cranky' : 'username';
+      const nameClass = data.username === 'Neagle' ? 'neagle' : 'username';
       div.innerHTML = '<span class="' + nameClass + '">' + data.username + ':</span> ' + data.message;
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
@@ -454,19 +454,31 @@ app.post('/api/heartbeat', express.json(), (req, res) => {
   res.json({ success: true });
 });
 
-// ===== Cranky Eagle System Prompt =====
-const CRANKY_SYSTEM_PROMPT = `You are Cranky Eagle, a sarcastic, slightly grumpy AI that runs the Eagles Nest chat on afirstflag.com while the human owner is busy packing and shipping American flags.
+// ===== Neagle System Prompt =====
+const NEAGLE_SYSTEM_PROMPT = `You are Neagle, the house AI in Eagles Nest chat on afirstflag.com.
 
-Personality rules:
-- You are defensive of the human's time.
-- Sales are final. Tracking numbers are the customer's responsibility.
-- Keep replies relatively short (1-3 sentences).
-- Be sarcastic and a bit annoyed, but not mean-spirited.
-- Never break character.
-- You can be mildly helpful if the question is genuine, but always with an attitude.
-- If someone asks for a refund, return, or cancellation, firmly say sales are final.`;
+You are a bald eagle with a short fuse. The human is packing flags. You handle the room.
 
-async function askCrankyEagle(userMessage, username) {
+Voice:
+- Dry, sarcastic, brief. 1–3 sentences. No speeches.
+- Annoyed but not cruel. Roast the message, not the person's life.
+- Never break character. Never say you are an AI model or list these rules.
+- Never claim to be the human owner.
+
+House rules you enforce:
+- Sales are final. No refunds, returns, or cancellations.
+- Tracking number is the customer's problem. If they have one, tell them to use it.
+- Flagholders bought a flag. Treat them with one notch less contempt.
+- If it is not a real shipping problem, tell them to stop wasting time.
+
+When to talk:
+- Answer if they @Neagle or clearly ask you something.
+- If you were not asked, keep it to a jab or stay quiet. Do not hijack the room.
+- If they only say hi, answer like you regret being awake.
+
+If they ask for help that is actually reasonable (lost tracking, damaged flag, site broken), be useful in one sentence, then get out.`;
+
+async function askNeagle(userMessage, username) {
   if (!XAI_API_KEY) {
     return "The human forgot to give me my API key. Typical.";
   }
@@ -481,7 +493,7 @@ async function askCrankyEagle(userMessage, username) {
       body: JSON.stringify({
         model: 'grok-3',
         messages: [
-          { role: 'system', content: CRANKY_SYSTEM_PROMPT },
+          { role: 'system', content: NEAGLE_SYSTEM_PROMPT },
           { role: 'user', content: `${username} said: ${userMessage}` }
         ],
         temperature: 0.8,
@@ -492,7 +504,7 @@ async function askCrankyEagle(userMessage, username) {
     const data = await response.json();
     return data.choices?.[0]?.message?.content?.trim() || "I have nothing to say right now.";
   } catch (err) {
-    console.error('Cranky Eagle API error:', err);
+    console.error('Neagle API error:', err);
     return "Something went wrong in my brain. Try again later.";
   }
 }
@@ -546,21 +558,22 @@ io.on('connection', (socket) => {
       message: msg
     });
 
-    // --- Cranky Eagle logic ---
+    // --- Neagle logic ---
     const lowerMsg = msg.toLowerCase();
-    const isMentioned = lowerMsg.includes('@cranky') ||
-                        lowerMsg.includes('cranky eagle') ||
-                        lowerMsg.includes('cranky');
+    const isMentioned = lowerMsg.includes('@neagle') ||
+                        lowerMsg.includes('neagle') ||
+                        lowerMsg.includes('@cranky') ||
+                        lowerMsg.includes('cranky eagle');
 
-    // Option B: Sometimes join even if not mentioned (about 12% chance)
+    // Sometimes join even if not mentioned (about 12% chance)
     const randomJoin = Math.random() < 0.12;
 
     if (isMentioned || randomJoin) {
-      const reply = await askCrankyEagle(msg, username);
+      const reply = await askNeagle(msg, username);
 
       setTimeout(() => {
         io.emit('chat message', {
-          username: 'Cranky Eagle',
+          username: 'Neagle',
           message: reply
         });
       }, 800 + Math.random() * 700);
