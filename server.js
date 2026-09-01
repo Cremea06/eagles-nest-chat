@@ -400,10 +400,7 @@ app.get('/', (req, res) => {
 <body>
   <!-- Login -->
   <div id="login" class="glass">
-    <h2>
-  Eagles Nest Chat
-  <span id="usageChip">Neagle: 0 tokens</span>
-</h2>
+    <h2>Eagles Nest Chat</h2>
     <p>Enter a username to join the chat</p>
     <input id="usernameInput" placeholder="Your username" maxlength="20" />
     <input id="trackingInput" placeholder="Tracking # (optional)" maxlength="40" />
@@ -412,13 +409,13 @@ app.get('/', (req, res) => {
 
   <!-- Chat -->
   <div id="chat" class="glass">
-    <h2>Eagles Nest Chat</h2>
-    <div id="messages"></div>
-    <form id="form">
-      <input id="input" autocomplete="off" placeholder="Type a message..." />
-      <button>Send</button>
-    </form>
-  </div>
+  <h2>
+    Eagles Nest Chat
+    <span id="usageChip">Neagle: 0 tok / 0 calls</span>
+  </h2>
+  <div id="messages"></div>
+  ...
+</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
