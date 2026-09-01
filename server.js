@@ -18,6 +18,22 @@ app.use(cors({
   credentials: false
 }));
 
+const usageStats = {
+  calls: 0,
+  prompt: 0,
+  completion: 0,
+  total: 0
+};
+
+function usagePayload() {
+  return {
+    calls: usageStats.calls,
+    tokens: usageStats.total,
+    prompt: usageStats.prompt,
+    completion: usageStats.completion
+  };
+}
+
 // ===== Online Visitors Tracker =====
 const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
 
@@ -248,12 +264,28 @@ app.get('/', (req, res) => {
     }
 
     #chat > h2 {
-      padding: 1.1rem 1.4rem;
-      font-size: 1.25rem;
-      font-weight: 600;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      flex-shrink: 0;
-    }
+  padding: 1.1rem 1.4rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#usageChip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 215, 0, 0.28);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  white-space: nowrap;
+}
 
     #messages {
       flex: 1;
@@ -368,7 +400,10 @@ app.get('/', (req, res) => {
 <body>
   <!-- Login -->
   <div id="login" class="glass">
-    <h2>Welcome to Eagles Nest</h2>
+    <h2>
+  Eagles Nest Chat
+  <span id="usageChip">Neagle: 0 tokens</span>
+</h2>
     <p>Enter a username to join the chat</p>
     <input id="usernameInput" placeholder="Your username" maxlength="20" />
     <input id="trackingInput" placeholder="Tracking # (optional)" maxlength="40" />
@@ -417,6 +452,12 @@ app.get('/', (req, res) => {
         input.value = '';
       }
     });
+
+    socket.on('usage', (data) => {
+  const chip = document.getElementById('usageChip');
+  if (!chip) return;
+  chip.textContent = 'Neagle: ' + data.tokens + ' tok / ' + data.calls + ' calls';
+});
 
     socket.on('chat message', (data) => {
       const div = document.createElement('div');
@@ -503,6 +544,17 @@ async function askNeagle(userMessage, username) {
     });
 
     const data = await response.json();
+    const usage = data.usage || {};
+    const prompt = usage.prompt_tokens || 0;
+    const completion = usage.completion_tokens || 0;
+    const total = usage.total_tokens || (prompt + completion);
+
+    usageStats.calls += 1;
+    usageStats.prompt += prompt;
+    usageStats.completion += completion;
+    usageStats.total += total;
+
+io.emit('usage', usagePayload());
     return data.choices?.[0]?.message?.content?.trim() || "I have nothing to say right now.";
   } catch (err) {
     console.error('Neagle API error:', err);
@@ -534,6 +586,7 @@ io.on('connection', (socket) => {
 
     socket.broadcast.emit('system', `${displayName} joined the chat`);
     socket.emit('system', `Welcome to Eagles Nest, ${displayName}!`);
+    socket.emit('usage', usagePayload());
   });
 
   socket.on('chat message', async (msg) => {
