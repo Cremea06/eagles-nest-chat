@@ -398,8 +398,18 @@ app.get('/', (req, res) => {
   </style>
 </head>
 <body>
+  <body>
   <!-- Login -->
-   <div id="chat" class="glass">
+  <div id="login" class="glass">
+    <h2>Welcome to Eagles Nest</h2>
+    <p>Enter a username to join the chat</p>
+    <input id="usernameInput" placeholder="Your username" maxlength="20" />
+    <input id="trackingInput" placeholder="Tracking # (optional)" maxlength="40" />
+    <button onclick="joinChat()">Join Chat</button>
+  </div>
+
+  <!-- Chat -->
+  <div id="chat" class="glass">
     <h2>
       Eagles Nest Chat
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
@@ -410,16 +420,6 @@ app.get('/', (req, res) => {
       <button>Send</button>
     </form>
   </div>
-
-  <!-- Chat -->
-  <div id="chat" class="glass">
-  <h2>
-    Eagles Nest Chat
-    <span id="usageChip">Neagle: 0 tok / 0 calls</span>
-  </h2>
-  <div id="messages"></div>
-  ...
-</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
