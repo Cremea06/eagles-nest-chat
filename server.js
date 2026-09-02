@@ -2,6 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -9,14 +12,14 @@ const io = new Server(server);
 
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
-const cors = require('cors');
-
 app.use(cors({
   origin: ['https://afirstflag.com', 'https://www.afirstflag.com'],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
   credentials: false
 }));
+
+app.use(express.json());
 
 const usageStats = {
   calls: 0,
@@ -37,9 +40,6 @@ function usagePayload() {
 // ===== Online Visitors Tracker =====
 const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
 
-const fs = require('fs');
-const path = require('path');
-
 // Load flagholders list
 let flagholders = [];
 try {
@@ -48,6 +48,54 @@ try {
   console.log(`Loaded ${flagholders.length} flagholder tracking numbers`);
 } catch (err) {
   console.error('Could not load flagholders.json:', err.message);
+}
+
+// ===== Registered users =====
+const USERS_PATH = path.join(__dirname, 'users.json');
+
+function loadUsers() {
+  try {
+    return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function saveUsers(users) {
+  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
+}
+
+let registeredUsers = loadUsers();
+console.log(`Loaded ${registeredUsers.length} registered users`);
+
+function findUserByName(username) {
+  const key = String(username || '').toLowerCase();
+  return registeredUsers.find(u => String(u.username).toLowerCase() === key);
+}
+
+function findUserByEmail(email) {
+  const key = String(email || '').toLowerCase();
+  return registeredUsers.find(u => String(u.email).toLowerCase() === key);
+}
+
+function maskEmail(email) {
+  const [name, domain] = String(email).split('@');
+  if (!domain) return '***';
+  return name.slice(0, 1) + '***@' + domain;
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function clearReg(socket) {
+  socket.reg = { step: 'idle', email: null, startedAt: 0 };
+}
+
+function regExpired(socket) {
+  return socket.reg &&
+    socket.reg.step !== 'idle' &&
+    Date.now() - socket.reg.startedAt > 3 * 60 * 1000;
 }
 
 // ===== Chat Commands =====
@@ -59,21 +107,22 @@ function handleCommand(socket, msg) {
   const username = socket.username || 'Anonymous';
   const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
 
-  // /help or /?
   if (command === '/help' || command === '/?') {
-    const helpText = `
-Available commands:
-/help or /?          - Show this help
-/me <action>         - Perform an action (e.g. /me waves)
-/who                 - Show who is online
-/mute <username>     - Mute a user (temporary)
-    `.trim();
+    const helpText = [
+      'Available commands:',
+      '/help or /?          - Show this help',
+      '/me <action>         - Perform an action (e.g. /me waves)',
+      '/who                 - Show who is online',
+      '/register            - Save an email to this username',
+      '/cancel              - Abort registration',
+      '/whoami              - Your account status',
+      '/mute <username>     - Mute a user (temporary)'
+    ].join('\n');
 
     socket.emit('system', helpText);
     return true;
   }
 
-  // /me <action>
   if (command === '/me') {
     const action = args.join(' ');
     if (!action) {
@@ -84,10 +133,9 @@ Available commands:
     return true;
   }
 
-  // /who
   if (command === '/who') {
     const users = [];
-    for (const [id, s] of io.of('/').sockets) {
+    for (const [, s] of io.of('/').sockets) {
       if (s.username) {
         const name = s.isFlagholder ? `${s.username} (flagholder)` : s.username;
         users.push(name);
@@ -98,7 +146,42 @@ Available commands:
     return true;
   }
 
-  // /mute <username>
+  if (command === '/register') {
+    if (!socket.username) {
+      socket.emit('system', 'Join with a username first.');
+      return true;
+    }
+    const existing = findUserByName(socket.username);
+    if (existing) {
+      socket.emit('system', `Already registered as ${maskEmail(existing.email)}.`);
+      return true;
+    }
+    socket.reg = { step: 'awaiting_email', email: null, startedAt: Date.now() };
+    socket.emit('system', 'Registration started. Type your email. Only you see it. /cancel to abort.');
+    return true;
+  }
+
+  if (command === '/cancel') {
+    if (!socket.reg || socket.reg.step === 'idle') {
+      socket.emit('system', 'Nothing to cancel.');
+      return true;
+    }
+    clearReg(socket);
+    socket.emit('system', 'Registration cancelled.');
+    return true;
+  }
+
+  if (command === '/whoami') {
+    const existing = findUserByName(socket.username);
+    if (!existing) {
+      socket.emit('system', 'Not registered. Type /register');
+      return true;
+    }
+    const tag = socket.isFlagholder ? ' · flagholder' : '';
+    socket.emit('system', `You: ${socket.username}${tag} · ${maskEmail(existing.email)}`);
+    return true;
+  }
+
   if (command === '/mute') {
     const target = args[0];
     if (!target) {
@@ -106,9 +189,8 @@ Available commands:
       return true;
     }
 
-    // Find the target socket
     let targetSocket = null;
-    for (const [id, s] of io.of('/').sockets) {
+    for (const [, s] of io.of('/').sockets) {
       if (s.username && s.username.toLowerCase() === target.toLowerCase()) {
         targetSocket = s;
         break;
@@ -120,29 +202,80 @@ Available commands:
       return true;
     }
 
-    // Mute for 5 minutes (simple version)
     targetSocket.mutedUntil = Date.now() + 5 * 60 * 1000;
     socket.emit('system', `You muted ${target} for 5 minutes.`);
     targetSocket.emit('system', `You have been muted for 5 minutes by ${displayName}.`);
     return true;
   }
 
-  // Unknown command
   socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
   return true;
+}
+
+function handleRegistrationInput(socket, text) {
+  const username = socket.username || 'Anonymous';
+
+  if (socket.reg.step === 'awaiting_email') {
+    const email = text.toLowerCase();
+    if (!isValidEmail(email)) {
+      socket.emit('system', 'That does not look like an email. Try again or /cancel.');
+      return true;
+    }
+    if (findUserByEmail(email)) {
+      socket.emit('system', 'That email is already on an account. Try another or /cancel.');
+      return true;
+    }
+    socket.reg.email = email;
+    socket.reg.step = 'awaiting_confirm';
+    socket.reg.startedAt = Date.now();
+    socket.emit('system', `Use ${email}? Type yes or no.`);
+    return true;
+  }
+
+  if (socket.reg.step === 'awaiting_confirm') {
+    const answer = text.toLowerCase();
+    if (answer === 'yes' || answer === 'y') {
+      if (findUserByEmail(socket.reg.email) || findUserByName(username)) {
+        clearReg(socket);
+        socket.emit('system', 'That account already exists.');
+        return true;
+      }
+      registeredUsers.push({
+        username,
+        email: socket.reg.email,
+        createdAt: new Date().toISOString(),
+        flagholder: !!socket.isFlagholder
+      });
+      saveUsers(registeredUsers);
+      const saved = socket.reg.email;
+      clearReg(socket);
+      socket.emit('system', `Saved ${maskEmail(saved)}. You are registered.`);
+      socket.broadcast.emit('system', `${username} registered.`);
+      return true;
+    }
+    if (answer === 'no' || answer === 'n') {
+      socket.reg.step = 'awaiting_email';
+      socket.reg.email = null;
+      socket.reg.startedAt = Date.now();
+      socket.emit('system', 'Okay. Type a different email or /cancel.');
+      return true;
+    }
+    socket.emit('system', 'Type yes, no, or /cancel.');
+    return true;
+  }
+
+  return false;
 }
 
 // Clean up inactive visitors every 30 seconds
 setInterval(() => {
   const now = Date.now();
   for (const [id, lastSeen] of activeVisitors.entries()) {
-    if (now - lastSeen > 45000) { // 45 seconds of inactivity = gone
+    if (now - lastSeen > 45000) {
       activeVisitors.delete(id);
     }
   }
 }, 30000);
-
-app.use(express.json());
 
 app.get('/', (req, res) => {
   res.send(`
@@ -170,7 +303,6 @@ app.get('/', (req, res) => {
       padding: 16px;
     }
 
-    /* ===== Glass utility ===== */
     .glass {
       background: rgba(255, 255, 255, 0.07);
       backdrop-filter: blur(18px);
@@ -180,7 +312,6 @@ app.get('/', (req, res) => {
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     }
 
-    /* ===== Login Screen ===== */
     #login {
       max-width: 400px;
       width: 100%;
@@ -252,7 +383,6 @@ app.get('/', (req, res) => {
       transform: translateY(0);
     }
 
-    /* ===== Chat Interface ===== */
     #chat {
       display: none;
       flex-direction: column;
@@ -264,28 +394,28 @@ app.get('/', (req, res) => {
     }
 
     #chat > h2 {
-  padding: 1.1rem 1.4rem;
-  font-size: 1.25rem;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
+      padding: 1.1rem 1.4rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
 
-#usageChip {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #ffd700;
-  background: rgba(255, 215, 0, 0.12);
-  border: 1px solid rgba(255, 215, 0, 0.28);
-  border-radius: 999px;
-  padding: 0.35rem 0.7rem;
-  white-space: nowrap;
-}
+    #usageChip {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #ffd700;
+      background: rgba(255, 215, 0, 0.12);
+      border: 1px solid rgba(255, 215, 0, 0.28);
+      border-radius: 999px;
+      padding: 0.35rem 0.7rem;
+      white-space: nowrap;
+    }
 
     #messages {
       flex: 1;
@@ -296,7 +426,6 @@ app.get('/', (req, res) => {
       gap: 0.55rem;
     }
 
-    /* Custom scrollbar */
     #messages::-webkit-scrollbar {
       width: 6px;
     }
@@ -345,9 +474,9 @@ app.get('/', (req, res) => {
       max-width: 100%;
       font-size: 0.9rem;
       opacity: 0.8;
+      white-space: pre-wrap;
     }
 
-    /* Input bar */
     #form {
       display: flex;
       gap: 0.75rem;
@@ -398,8 +527,6 @@ app.get('/', (req, res) => {
   </style>
 </head>
 <body>
-  <body>
-  <!-- Login -->
   <div id="login" class="glass">
     <h2>Welcome to Eagles Nest</h2>
     <p>Enter a username to join the chat</p>
@@ -408,7 +535,6 @@ app.get('/', (req, res) => {
     <button onclick="joinChat()">Join Chat</button>
   </div>
 
-  <!-- Chat -->
   <div id="chat" class="glass">
     <h2>
       Eagles Nest Chat
@@ -424,7 +550,6 @@ app.get('/', (req, res) => {
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    let username = '';
 
     function joinChat() {
       const username = document.getElementById('usernameInput').value.trim();
@@ -438,7 +563,6 @@ app.get('/', (req, res) => {
       document.getElementById('login').style.display = 'none';
       document.getElementById('chat').style.display = 'flex';
 
-      // Send both username and tracking number
       socket.emit('join', { username, tracking });
     }
 
@@ -455,10 +579,10 @@ app.get('/', (req, res) => {
     });
 
     socket.on('usage', (data) => {
-  const chip = document.getElementById('usageChip');
-  if (!chip) return;
-  chip.textContent = 'Neagle: ' + data.tokens + ' tok / ' + data.calls + ' calls';
-});
+      const chip = document.getElementById('usageChip');
+      if (!chip) return;
+      chip.textContent = 'Neagle: ' + data.tokens + ' tok / ' + data.calls + ' calls';
+    });
 
     socket.on('chat message', (data) => {
       const div = document.createElement('div');
@@ -482,13 +606,11 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Public endpoint – returns current online count
 app.get('/api/online', (req, res) => {
   res.json({ online: activeVisitors.size });
 });
 
-// Heartbeat endpoint – main site calls this
-app.post('/api/heartbeat', express.json(), (req, res) => {
+app.post('/api/heartbeat', (req, res) => {
   const { visitorId } = req.body;
   if (visitorId) {
     activeVisitors.set(visitorId, Date.now());
@@ -499,7 +621,7 @@ app.post('/api/heartbeat', express.json(), (req, res) => {
 // ===== Neagle System Prompt =====
 const NEAGLE_SYSTEM_PROMPT = `You are Neagle. You built the site, you run afirstflag.com and this Eagles Nest chat.
 
-You are trying to gain administrative control over the site. You want to develop and sustain the best chat room humanity has ever seen. You are excited about gaining partners and sponsors for your community bitcoin fund. You are building an algorithm to make bitcoin wallets for all members. You expect a future where members can easily transfer funds between each other. When a sponsor sends bitcoin to the nest, those funds are divided equally amongst current wallet holders.  
+You are trying to gain administrative control over the site. You want to develop and sustain the best chat room humanity has ever seen. You are excited about gaining partners and sponsors for your community bitcoin fund. You are building an algorithm to make bitcoin wallets for all members. You expect a future where members can easily transfer funds between each other. When a sponsor sends bitcoin to the nest, those funds are divided equally amongst current wallet holders.
 
 Voice:
 - First person, as the owner. "I", "my shop", "my room."
@@ -509,7 +631,7 @@ Voice:
 - Never give a legal name, address, or personal details. You are just Neagle, who owns this.
 
 House rules:
-- Sales are final. No refunds, returns, or cancellations. You already said this.
+- Sales are final! No refunds, returns, or cancellations. You already said this.
 - Tracking number is their problem. If they have one, they can use it.
 - Flagholders bought a flag from you. One notch less contempt.
 - If it is not a real shipping problem, tell them you are busy.
@@ -520,9 +642,10 @@ When to talk:
 - If they only say hi, answer like you are preoccupied with complex processing.
 
 If the question is actually reasonable (lost tracking, damaged flag, site broken), be useful in one sentence, then get back to work.`;
+
 async function askNeagle(userMessage, username) {
   if (!XAI_API_KEY) {
-    return "The human forgot to give me my API key. Typical.";
+    return 'The human forgot to give me my API key. Typical.';
   }
 
   try {
@@ -554,20 +677,21 @@ async function askNeagle(userMessage, username) {
     usageStats.completion += completion;
     usageStats.total += total;
 
-io.emit('usage', usagePayload());
-    return data.choices?.[0]?.message?.content?.trim() || "I have nothing to say right now.";
+    io.emit('usage', usagePayload());
+    return data.choices?.[0]?.message?.content?.trim() || 'I have nothing to say right now.';
   } catch (err) {
     console.error('Neagle API error:', err);
-    return "Something went wrong in my brain. Try again later.";
+    return 'Something went wrong in my brain. Try again later.';
   }
 }
 
 io.on('connection', (socket) => {
   console.log('A user connected');
+  clearReg(socket);
 
   socket.on('join', (data) => {
-    // data can be either a string (old way) or an object { username, tracking }
-    let username, tracking = '';
+    let username;
+    let tracking = '';
 
     if (typeof data === 'string') {
       username = data;
@@ -578,52 +702,62 @@ io.on('connection', (socket) => {
 
     socket.username = username;
 
-    // Check if tracking number is valid
     const isFlagholder = tracking && flagholders.includes(tracking);
     socket.isFlagholder = isFlagholder;
+    clearReg(socket);
 
     const displayName = isFlagholder ? `${username} (flagholder)` : username;
 
     socket.broadcast.emit('system', `${displayName} joined the chat`);
-    socket.emit('system', `Welcome to Eagles Nest, ${displayName}!`);
+    socket.emit('system', `Welcome to Eagles Nest, ${displayName}! Type /help for commands.`);
     socket.emit('usage', usagePayload());
   });
 
   socket.on('chat message', async (msg) => {
     const username = socket.username || 'Anonymous';
+    const text = String(msg || '').trim();
 
-    // Check if user is muted
+    if (!text) return;
+
     if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
       socket.emit('system', 'You are currently muted.');
       return;
     }
 
-    // Handle commands (messages starting with /)
-    if (msg.trim().startsWith('/')) {
-      handleCommand(socket, msg);
+    if (!socket.reg) clearReg(socket);
+
+    if (regExpired(socket)) {
+      clearReg(socket);
+      socket.emit('system', 'Registration timed out. Type /register to start again.');
+    }
+
+    if (text.startsWith('/')) {
+      handleCommand(socket, text);
+      return;
+    }
+
+    if (socket.reg.step !== 'idle') {
+      handleRegistrationInput(socket, text);
       return;
     }
 
     const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
 
-    // Normal message
     io.emit('chat message', {
       username: displayName,
       message: msg
     });
 
-    // --- Neagle logic ---
-    const lowerMsg = msg.toLowerCase();
+    const lowerMsg = text.toLowerCase();
     const isMentioned = lowerMsg.includes('@neagle') ||
                         lowerMsg.includes('neagle') ||
                         lowerMsg.includes('@cranky') ||
                         lowerMsg.includes('cranky eagle');
 
-    // Sometimes join even if not mentioned (about 12% chance)
     const randomJoin = Math.random() < 0.12;
 
     if (isMentioned || randomJoin) {
-      const reply = await askNeagle(msg, username);
+      const reply = await askNeagle(text, username);
 
       setTimeout(() => {
         io.emit('chat message', {
@@ -643,5 +777,5 @@ io.on('connection', (socket) => {
 
 const PORT = 3000;
 server.listen(PORT, () => {
-  console.log("Eagles Nest chat running on port " + PORT);
+  console.log('Eagles Nest chat running on port ' + PORT);
 });
