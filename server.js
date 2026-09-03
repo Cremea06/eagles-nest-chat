@@ -524,6 +524,178 @@ app.get('/', (req, res) => {
     #form button:hover {
       transform: translateY(-1px);
       box-shadow: 0 6px 18px rgba(196, 30, 58, 0.4);
+
+          body.nest-on {
+      display: grid;
+      grid-template-columns: 1fr minmax(280px, 920px) 340px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    body.nest-on #login { display: none !important; }
+
+    body.nest-on #chat {
+      display: flex;
+      grid-column: 2;
+      width: 100%;
+      max-width: none;
+      margin: 0;
+    }
+
+    #liveCard {
+      display: none;
+      grid-column: 3;
+      padding: 12px;
+      position: sticky;
+      top: 16px;
+    }
+
+    body.nest-on #liveCard { display: block; }
+
+    .live-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding: 2px 4px;
+    }
+
+    .live-head h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .live-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: #fff;
+      background: #c41e3a;
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+
+    .live-badge.on { display: inline-flex; }
+
+    .live-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #fff;
+      animation: livePulse 1.1s ease-in-out infinite;
+    }
+
+    @keyframes livePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .viewport {
+      position: relative;
+      background: rgba(0, 0, 0, 0.28);
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 16 / 10;
+    }
+
+    .viewport video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+      background: #07111f;
+    }
+
+    .viewport.streaming video { display: block; }
+
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #a0aec0;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      padding: 12px;
+    }
+
+    .viewport.streaming .placeholder { display: none; }
+
+    .live-status {
+      min-height: 18px;
+      margin: 8px 4px 10px;
+      font-size: 0.75rem;
+      color: #a0aec0;
+    }
+
+    .live-status.err { color: #ff8a97; }
+    .live-status.ok { color: #7dcea0; }
+
+    .live-actions { display: grid; gap: 8px; }
+
+    .btn-live {
+      padding: 0.75rem 1rem;
+      background: linear-gradient(135deg, #c41e3a 0%, #9b1b2e 100%);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-ghost {
+      padding: 0.75rem 1rem;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 12px;
+      color: #f0f4f8;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .chooser, .live-controls {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .chooser.open, .live-controls.on { display: grid; }
+
+    .choice {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #f0f4f8;
+      border-radius: 12px;
+      padding: 10px 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+
+    .choice small {
+      display: block;
+      font-weight: 500;
+      color: #a0aec0;
+      margin-top: 3px;
+      font-size: 0.7rem;
+    }
+
+    @media (max-width: 1100px) {
+      body.nest-on {
+        grid-template-columns: 1fr minmax(280px, 920px) 1fr;
+      }
+      body.nest-on #liveCard {
+        grid-column: 2;
+        position: static;
+      }
+    }
+
     }
   </style>
 </head>
@@ -535,6 +707,29 @@ app.get('/', (req, res) => {
     <input id="trackingInput" placeholder="Tracking # (optional)" maxlength="40" />
     <button onclick="joinChat()">Join Chat</button>
   </div>
+
+    <aside id="liveCard" class="glass">
+    <div class="live-head">
+      <h3>Nest Stream</h3>
+      <span class="live-badge" id="liveBadge"><span class="dot"></span> LIVE</span>
+    </div>
+    <div class="viewport" id="viewport">
+      <video id="preview" autoplay playsinline></video>
+      <div class="placeholder" id="placeholder">One click to go live.<br>Camera or screen, plus audio.</div>
+    </div>
+    <div class="live-status" id="liveStatus">Ready when you are.</div>
+    <div class="live-actions">
+      <button class="btn-live" id="goLiveBtn" type="button">Go Live</button>
+      <div class="chooser" id="chooser">
+        <button class="choice" id="camBtn" type="button">Camera<small>Face + mic</small></button>
+        <button class="choice" id="screenBtn" type="button">Screen<small>Share + mic</small></button>
+      </div>
+      <div class="live-controls" id="liveControls">
+        <button class="btn-ghost" id="muteBtn" type="button">Mute mic</button>
+        <button class="btn-live" id="endBtn" type="button">End live</button>
+      </div>
+    </div>
+  </aside>
 
   <div id="chat" class="glass">
     <h2>
@@ -552,6 +747,204 @@ app.get('/', (req, res) => {
   <script>
     const socket = io();
 
+      <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    let localStream = null;
+    let audioTrack = null;
+    let muted = false;
+    let myUsername = '';
+    let amLive = false;
+    const peers = new Map();
+
+    const preview = document.getElementById('preview');
+    const viewport = document.getElementById('viewport');
+    const liveStatus = document.getElementById('liveStatus');
+    const goLiveBtn = document.getElementById('goLiveBtn');
+    const chooser = document.getElementById('chooser');
+    const liveControls = document.getElementById('liveControls');
+    const liveBadge = document.getElementById('liveBadge');
+    const muteBtn = document.getElementById('muteBtn');
+
+    function setStatus(text, kind) {
+      liveStatus.textContent = text;
+      liveStatus.className = 'live-status' + (kind ? ' ' + kind : '');
+    }
+
+    function setLiveUI(on) {
+      amLive = on;
+      viewport.classList.toggle('streaming', on);
+      liveBadge.classList.toggle('on', on);
+      liveControls.classList.toggle('on', on);
+      goLiveBtn.style.display = on ? 'none' : 'block';
+      chooser.classList.remove('open');
+    }
+
+    function stopLocal() {
+      if (localStream) localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+      audioTrack = null;
+      preview.srcObject = null;
+      preview.muted = false;
+      muted = false;
+      muteBtn.textContent = 'Mute mic';
+      for (const pc of peers.values()) pc.close();
+      peers.clear();
+      if (amLive) socket.emit('end-live');
+      setLiveUI(false);
+      setStatus('Stream ended.');
+    }
+
+    async function getMicTracks() {
+      try {
+        const mic = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: false
+        });
+        return mic.getAudioTracks();
+      } catch {
+        return [];
+      }
+    }
+
+    async function startCamera() {
+      setStatus('Asking for camera and microphone…');
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+      audioTrack = localStream.getAudioTracks()[0] || null;
+      attachLocal('camera', 'Camera is live.');
+    }
+
+    async function startScreen() {
+      setStatus('Pick a screen or window…');
+      const display = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: true
+      });
+      const mics = await getMicTracks();
+      mics.forEach(t => display.addTrack(t));
+      localStream = display;
+      audioTrack = localStream.getAudioTracks()[0] || null;
+      display.getVideoTracks()[0].addEventListener('ended', stopLocal);
+      attachLocal('screen', 'Screen is live.');
+    }
+
+    function attachLocal(kind, okText) {
+      preview.srcObject = localStream;
+      preview.muted = true;
+      preview.play().catch(() => {});
+      setLiveUI(true);
+      setStatus(okText, 'ok');
+      socket.emit('go-live', { kind });
+    }
+
+    function handlePermError(err) {
+      const name = err && err.name;
+      if (name === 'NotAllowedError') setStatus('Permission blocked. Allow camera/mic/screen, then try again.', 'err');
+      else if (name === 'NotFoundError') setStatus('No camera or mic found.', 'err');
+      else setStatus((err && err.message) || 'Could not start stream.', 'err');
+      chooser.classList.remove('open');
+    }
+
+    goLiveBtn.addEventListener('click', () => {
+      if (!window.isSecureContext) {
+        setStatus('Go Live needs HTTPS.', 'err');
+        return;
+      }
+      chooser.classList.toggle('open');
+      setStatus(chooser.classList.contains('open') ? 'Camera or screen?' : 'Ready when you are.');
+    });
+
+    document.getElementById('camBtn').addEventListener('click', async () => {
+      try { await startCamera(); } catch (err) { handlePermError(err); }
+    });
+
+    document.getElementById('screenBtn').addEventListener('click', async () => {
+      try { await startScreen(); } catch (err) { handlePermError(err); }
+    });
+
+    muteBtn.addEventListener('click', () => {
+      if (!audioTrack) { setStatus('No microphone on this stream.', 'err'); return; }
+      muted = !muted;
+      audioTrack.enabled = !muted;
+      muteBtn.textContent = muted ? 'Unmute mic' : 'Mute mic';
+      setStatus(muted ? 'Microphone muted.' : 'Microphone on.', muted ? '' : 'ok');
+    });
+
+    document.getElementById('endBtn').addEventListener('click', stopLocal);
+
+    function ensurePeer(id, asOfferer) {
+      if (peers.has(id)) return peers.get(id);
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      peers.set(id, pc);
+      if (localStream) {
+        localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+      }
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit('webrtc-signal', { targetId: id, type: 'ice', payload: e.candidate });
+        }
+      };
+      pc.ontrack = (e) => {
+        preview.srcObject = e.streams[0];
+        preview.muted = false;
+        viewport.classList.add('streaming');
+        liveBadge.classList.add('on');
+        setStatus('Watching live stream.', 'ok');
+      };
+      if (asOfferer) {
+        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+          socket.emit('webrtc-signal', { targetId: id, type: 'offer', payload: pc.localDescription });
+        });
+      }
+      return pc;
+    }
+
+    socket.on('user-live', (info) => {
+      setStatus(info.username + ' is live (' + info.kind + '). Connecting…');
+      socket.emit('watch-live', { broadcasterId: info.socketId });
+    });
+
+    socket.on('live-state', (list) => {
+      if (!list || !list.length || amLive) return;
+      const info = list[0];
+      setStatus(info.username + ' is already live.');
+      socket.emit('watch-live', { broadcasterId: info.socketId });
+    });
+
+    socket.on('watch-request', (data) => {
+      if (!amLive || !localStream) return;
+      ensurePeer(data.viewerId, true);
+    });
+
+    socket.on('webrtc-signal', async (data) => {
+      const pc = ensurePeer(data.fromId, false);
+      if (data.type === 'offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('webrtc-signal', { targetId: data.fromId, type: 'answer', payload: pc.localDescription });
+      } else if (data.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+      } else if (data.type === 'ice' && data.payload) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(data.payload)); } catch (e) {}
+      }
+    });
+
+    socket.on('user-ended-live', () => {
+      if (amLive) return;
+      for (const pc of peers.values()) pc.close();
+      peers.clear();
+      preview.srcObject = null;
+      viewport.classList.remove('streaming');
+      liveBadge.classList.remove('on');
+      setStatus('Live stream ended.');
+    });
+
     function joinChat() {
       const username = document.getElementById('usernameInput').value.trim();
       const tracking = document.getElementById('trackingInput').value.trim();
@@ -561,9 +954,10 @@ app.get('/', (req, res) => {
         return;
       }
 
+      myUsername = username;
       document.getElementById('login').style.display = 'none';
       document.getElementById('chat').style.display = 'flex';
-
+      document.body.classList.add('nest-on');
       socket.emit('join', { username, tracking });
     }
 
@@ -602,6 +996,8 @@ app.get('/', (req, res) => {
       messages.scrollTop = messages.scrollHeight;
     });
   </script>
+
+   
 </body>
 </html>
   `);
