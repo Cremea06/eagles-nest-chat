@@ -39,6 +39,7 @@ function usagePayload() {
 
 // ===== Online Visitors Tracker =====
 const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
+const liveBroadcasters = new Map(); // socket.id -> { username, kind }
 
 // Load flagholders list
 let flagholders = [];
@@ -711,6 +712,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('system', `${displayName} joined the chat`);
     socket.emit('system', `Welcome to Eagles Nest, ${displayName}! Type /help for commands.`);
     socket.emit('usage', usagePayload());
+    const currentLive = [];
+    for (const [id, info] of liveBroadcasters) {
+      currentLive.push({ socketId: id, username: info.username, kind: info.kind });
+    }
+    if (currentLive.length) socket.emit('live-state', currentLive);
   });
 
   socket.on('chat message', async (msg) => {
@@ -768,12 +774,63 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
+    socket.on('go-live', (data = {}) => {
+    if (!socket.username) return;
+    if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
+      socket.emit('system', 'You are muted. Cannot go live.');
+      return;
+    }
+    const kind = data.kind === 'screen' ? 'screen' : 'camera';
+    liveBroadcasters.set(socket.id, { username: socket.username, kind });
+    socket.broadcast.emit('user-live', {
+      socketId: socket.id,
+      username: socket.username,
+      kind
+    });
+    io.emit('system', `${socket.username} went live (${kind})`);
+  });
+
+  socket.on('end-live', () => {
+    const info = liveBroadcasters.get(socket.id);
+    if (!info) return;
+    liveBroadcasters.delete(socket.id);
+    socket.broadcast.emit('user-ended-live', {
+      socketId: socket.id,
+      username: info.username
+    });
+    io.emit('system', `${info.username} ended the live stream`);
+  });
+
+  socket.on('watch-live', (data = {}) => {
+    const targetId = data && data.broadcasterId;
+    if (!targetId || !liveBroadcasters.has(targetId) || targetId === socket.id) return;
+    io.to(targetId).emit('watch-request', { viewerId: socket.id });
+  });
+
+  socket.on('webrtc-signal', (data = {}) => {
+    const targetId = data && data.targetId;
+    if (!targetId || targetId === socket.id) return;
+    io.to(targetId).emit('webrtc-signal', {
+      fromId: socket.id,
+      type: data.type,
+      payload: data.payload
+    });
+  });
+
+    socket.on('disconnect', () => {
+    const live = liveBroadcasters.get(socket.id);
+    if (live) {
+      liveBroadcasters.delete(socket.id);
+      socket.broadcast.emit('user-ended-live', {
+        socketId: socket.id,
+        username: live.username
+      });
+      socket.broadcast.emit('system', live.username + ' ended the live stream');
+    }
     if (socket.username) {
       socket.broadcast.emit('system', socket.username + ' left the chat');
     }
   });
-});
 
 const PORT = 3000;
 server.listen(PORT, () => {
