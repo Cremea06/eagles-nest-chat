@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Eagles Nest Chat</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(145deg, #07111f 0%, #0c1c32 40%, #0a1628 100%);
+      background-attachment: fixed;
+      color: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+    }
+
+    .glass {
+      background: rgba(255, 255, 255, 0.07);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 18px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    #login {
+      max-width: 400px;
+      width: 100%;
+      margin: 10vh auto 0;
+      padding: 2.75rem 2.25rem;
+      text-align: center;
+    }
+
+    #login h2 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.4rem;
+      color: #ffffff;
+    }
+
+    #login p {
+      opacity: 0.7;
+      font-size: 0.95rem;
+      margin-bottom: 1.75rem;
+    }
+
+    #usernameInput,
+    #trackingInput {
+      width: 100%;
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 0.9rem;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      color: #fff;
+      font-size: 1rem;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    #usernameInput::placeholder,
+    #trackingInput::placeholder {
+      color: rgba(255, 255, 255, 0.45);
+    }
+
+    #usernameInput:focus,
+    #trackingInput:focus {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.35);
+      box-shadow: 0 0 0 3px rgba(196, 30, 58, 0.25);
+    }
+
+    #login button {
+      width: 100%;
+      padding: 0.95rem;
+      margin-top: 0.4rem;
+      background: linear-gradient(135deg, #c41e3a 0%, #9b1b2e 100%);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-weight: 600;
+      font-size: 1.05rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    #login button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(196, 30, 58, 0.45);
+    }
+
+    #login button:active {
+      transform: translateY(0);
+    }
+
+    #chat {
+      display: none;
+      flex-direction: column;
+      height: calc(100vh - 32px);
+      max-width: 920px;
+      width: 100%;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+
+    #chat > h2 {
+      padding: 1.1rem 1.4rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    #usageChip {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #ffd700;
+      background: rgba(255, 215, 0, 0.12);
+      border: 1px solid rgba(255, 215, 0, 0.28);
+      border-radius: 999px;
+      padding: 0.35rem 0.7rem;
+      white-space: nowrap;
+    }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    #messages::-webkit-scrollbar { width: 6px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+
+    .msg {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 14px;
+      padding: 0.7rem 1rem;
+      max-width: 88%;
+      word-wrap: break-word;
+      line-height: 1.45;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg .username {
+      color: #ff6b6b;
+      font-weight: 600;
+      margin-right: 0.35rem;
+    }
+
+    .msg .neagle {
+      color: #ffd700;
+      font-weight: 700;
+      margin-right: 0.35rem;
+    }
+
+    .msg.system {
+      background: transparent;
+      border: none;
+      color: #a0aec0;
+      font-style: italic;
+      text-align: center;
+      max-width: 100%;
+      font-size: 0.9rem;
+      opacity: 0.8;
+      white-space: pre-wrap;
+    }
+
+    #form {
+      display: flex;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      flex-shrink: 0;
+    }
+
+    #input {
+      flex: 1;
+      padding: 0.9rem 1.15rem;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 12px;
+      color: white;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    #input::placeholder { color: rgba(255, 255, 255, 0.4); }
+
+    #input:focus {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    #form button {
+      padding: 0 1.5rem;
+      background: linear-gradient(135deg, #c41e3a 0%, #9b1b2e 100%);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+      white-space: nowrap;
+    }
+
+    #form button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(196, 30, 58, 0.4);
+    }
+
+    body.nest-on {
+      display: grid;
+      grid-template-columns: 1fr minmax(280px, 920px) 340px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    body.nest-on #login { display: none !important; }
+
+    body.nest-on #chat {
+      display: flex;
+      grid-column: 2;
+      width: 100%;
+      max-width: none;
+      margin: 0;
+    }
+
+    #liveCard {
+      display: none;
+      grid-column: 3;
+      padding: 12px;
+      position: sticky;
+      top: 16px;
+    }
+
+    body.nest-on #liveCard { display: block; }
+
+    .live-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding: 2px 4px;
+    }
+
+    .live-head h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .live-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: #fff;
+      background: #c41e3a;
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+
+    .live-badge.on { display: inline-flex; }
+
+    .live-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #fff;
+      animation: livePulse 1.1s ease-in-out infinite;
+    }
+
+    @keyframes livePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.35; }
+    }
+
+    .viewport {
+      position: relative;
+      background: rgba(0, 0, 0, 0.28);
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 16 / 10;
+    }
+
+    .viewport video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+      background: #07111f;
+    }
+
+    .viewport.streaming video { display: block; }
+
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #a0aec0;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      padding: 12px;
+    }
+
+    .viewport.streaming .placeholder { display: none; }
+
+    .live-status {
+      min-height: 18px;
+      margin: 8px 4px 10px;
+      font-size: 0.75rem;
+      color: #a0aec0;
+    }
+
+    .live-status.err { color: #ff8a97; }
+    .live-status.ok { color: #7dcea0; }
+
+    .live-actions { display: grid; gap: 8px; }
+
+    .btn-live {
+      padding: 0.75rem 1rem;
+      background: linear-gradient(135deg, #c41e3a 0%, #9b1b2e 100%);
+      border: none;
+      border-radius: 12px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-ghost {
+      padding: 0.75rem 1rem;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 12px;
+      color: #f0f4f8;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .chooser, .live-controls {
+      display: none;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .chooser.open, .live-controls.on { display: grid; }
+
+    .choice {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #f0f4f8;
+      border-radius: 12px;
+      padding: 10px 8px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+
+    .choice small {
+      display: block;
+      font-weight: 500;
+      color: #a0aec0;
+      margin-top: 3px;
+      font-size: 0.7rem;
+    }
+
+    @media (max-width: 1100px) {
+      body.nest-on {
+        grid-template-columns: 1fr minmax(280px, 920px) 1fr;
+      }
+      body.nest-on #liveCard {
+        grid-column: 2;
+        position: static;
+      }
+      body.nest-on #chat {
+        height: min(62vh, 640px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="login" class="glass">
+    <h2>Welcome to Eagles Nest</h2>
+    <p>Enter a username to join the chat</p>
+    <input id="usernameInput" placeholder="Your username" maxlength="20" />
+    <input id="trackingInput" placeholder="Tracking # (optional)" maxlength="40" />
+    <button onclick="joinChat()">Join Chat</button>
+  </div>
+
+  <div id="chat" class="glass">
+    <h2>
+      Eagles Nest Chat
+      <span id="usageChip">Neagle: 0 tok / 0 calls</span>
+    </h2>
+    <div id="messages"></div>
+    <form id="form">
+      <input id="input" autocomplete="off" placeholder="Type a message..." />
+      <button>Send</button>
+    </form>
+  </div>
+
+  <aside id="liveCard" class="glass">
+    <div class="live-head">
+      <h3>Nest Stream</h3>
+      <span class="live-badge" id="liveBadge"><span class="dot"></span> LIVE</span>
+    </div>
+    <div class="viewport" id="viewport">
+      <video id="preview" autoplay playsinline></video>
+      <div class="placeholder" id="placeholder">One click to go live.<br>Camera or screen, plus audio.</div>
+    </div>
+    <div class="live-status" id="liveStatus">Ready when you are.</div>
+    <div class="live-actions">
+      <button class="btn-live" id="goLiveBtn" type="button">Go Live</button>
+      <div class="chooser" id="chooser">
+        <button class="choice" id="camBtn" type="button">Camera<small>Face + mic</small></button>
+        <button class="choice" id="screenBtn" type="button">Screen<small>Share + mic</small></button>
+      </div>
+      <div class="live-controls" id="liveControls">
+        <button class="btn-ghost" id="muteBtn" type="button">Mute mic</button>
+        <button class="btn-live" id="endBtn" type="button">End live</button>
+      </div>
+    </div>
+  </aside>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    let localStream = null;
+    let audioTrack = null;
+    let muted = false;
+    let amLive = false;
+    const peers = new Map();
+
+    const preview = document.getElementById('preview');
+    const viewport = document.getElementById('viewport');
+    const liveStatus = document.getElementById('liveStatus');
+    const goLiveBtn = document.getElementById('goLiveBtn');
+    const chooser = document.getElementById('chooser');
+    const liveControls = document.getElementById('liveControls');
+    const liveBadge = document.getElementById('liveBadge');
+    const muteBtn = document.getElementById('muteBtn');
+
+    function setStatus(text, kind) {
+      liveStatus.textContent = text;
+      liveStatus.className = 'live-status' + (kind ? ' ' + kind : '');
+    }
+
+    function setLiveUI(on) {
+      amLive = on;
+      viewport.classList.toggle('streaming', on);
+      liveBadge.classList.toggle('on', on);
+      liveControls.classList.toggle('on', on);
+      goLiveBtn.style.display = on ? 'none' : 'block';
+      chooser.classList.remove('open');
+    }
+
+    function stopLocal() {
+      if (localStream) localStream.getTracks().forEach(t => t.stop());
+      localStream = null;
+      audioTrack = null;
+      preview.srcObject = null;
+      preview.muted = false;
+      muted = false;
+      muteBtn.textContent = 'Mute mic';
+      for (const pc of peers.values()) pc.close();
+      peers.clear();
+      if (amLive) socket.emit('end-live');
+      setLiveUI(false);
+      setStatus('Stream ended.');
+    }
+
+    async function getMicTracks() {
+      try {
+        const mic = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: false
+        });
+        return mic.getAudioTracks();
+      } catch {
+        return [];
+      }
+    }
+
+    async function startCamera() {
+      setStatus('Asking for camera and microphone…');
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: { echoCancellation: true, noiseSuppression: true }
+      });
+      audioTrack = localStream.getAudioTracks()[0] || null;
+      attachLocal('camera', 'Camera is live.');
+    }
+
+    async function startScreen() {
+      setStatus('Pick a screen or window…');
+      const display = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: true
+      });
+      const mics = await getMicTracks();
+      mics.forEach(t => display.addTrack(t));
+      localStream = display;
+      audioTrack = localStream.getAudioTracks()[0] || null;
+      display.getVideoTracks()[0].addEventListener('ended', stopLocal);
+      attachLocal('screen', 'Screen is live.');
+    }
+
+    function attachLocal(kind, okText) {
+      preview.srcObject = localStream;
+      preview.muted = true;
+      preview.play().catch(() => {});
+      setLiveUI(true);
+      setStatus(okText, 'ok');
+      socket.emit('go-live', { kind });
+    }
+
+    function handlePermError(err) {
+      const name = err && err.name;
+      if (name === 'NotAllowedError') setStatus('Permission blocked. Allow camera/mic/screen, then try again.', 'err');
+      else if (name === 'NotFoundError') setStatus('No camera or mic found.', 'err');
+      else setStatus((err && err.message) || 'Could not start stream.', 'err');
+      chooser.classList.remove('open');
+    }
+
+    goLiveBtn.addEventListener('click', () => {
+      if (!window.isSecureContext) {
+        setStatus('Go Live needs HTTPS.', 'err');
+        return;
+      }
+      chooser.classList.toggle('open');
+      setStatus(chooser.classList.contains('open') ? 'Camera or screen?' : 'Ready when you are.');
+    });
+
+    document.getElementById('camBtn').addEventListener('click', async () => {
+      try { await startCamera(); } catch (err) { handlePermError(err); }
+    });
+
+    document.getElementById('screenBtn').addEventListener('click', async () => {
+      try { await startScreen(); } catch (err) { handlePermError(err); }
+    });
+
+    muteBtn.addEventListener('click', () => {
+      if (!audioTrack) { setStatus('No microphone on this stream.', 'err'); return; }
+      muted = !muted;
+      audioTrack.enabled = !muted;
+      muteBtn.textContent = muted ? 'Unmute mic' : 'Mute mic';
+      setStatus(muted ? 'Microphone muted.' : 'Microphone on.', muted ? '' : 'ok');
+    });
+
+    document.getElementById('endBtn').addEventListener('click', stopLocal);
+
+    function ensurePeer(id, asOfferer) {
+      if (peers.has(id)) return peers.get(id);
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      peers.set(id, pc);
+      if (localStream) {
+        localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+      }
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit('webrtc-signal', { targetId: id, type: 'ice', payload: e.candidate });
+        }
+      };
+      pc.ontrack = (e) => {
+        if (amLive) return;
+        preview.srcObject = e.streams[0];
+        preview.muted = false;
+        viewport.classList.add('streaming');
+        liveBadge.classList.add('on');
+        setStatus('Watching live stream.', 'ok');
+      };
+      if (asOfferer) {
+        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+          socket.emit('webrtc-signal', { targetId: id, type: 'offer', payload: pc.localDescription });
+        }).catch((err) => console.error('offer failed', err));
+      }
+      return pc;
+    }
+
+    socket.on('user-live', (info) => {
+      if (amLive) return;
+      setStatus(info.username + ' is live (' + info.kind + '). Connecting…');
+      socket.emit('watch-live', { broadcasterId: info.socketId });
+    });
+
+    socket.on('live-state', (list) => {
+      if (!list || !list.length || amLive) return;
+      const info = list[0];
+      setStatus(info.username + ' is already live.');
+      socket.emit('watch-live', { broadcasterId: info.socketId });
+    });
+
+    socket.on('watch-request', (data) => {
+      if (!amLive || !localStream) return;
+      ensurePeer(data.viewerId, true);
+    });
+
+    socket.on('webrtc-signal', async (data) => {
+      try {
+        const pc = ensurePeer(data.fromId, false);
+        if (data.type === 'offer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('webrtc-signal', { targetId: data.fromId, type: 'answer', payload: pc.localDescription });
+        } else if (data.type === 'answer') {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+        } else if (data.type === 'ice' && data.payload) {
+          await pc.addIceCandidate(new RTCIceCandidate(data.payload));
+        }
+      } catch (err) {
+        console.error('webrtc-signal', err);
+      }
+    });
+
+    socket.on('user-ended-live', () => {
+      if (amLive) return;
+      for (const pc of peers.values()) pc.close();
+      peers.clear();
+      preview.srcObject = null;
+      viewport.classList.remove('streaming');
+      liveBadge.classList.remove('on');
+      setStatus('Live stream ended.');
+    });
+
+    function joinChat() {
+      const username = document.getElementById('usernameInput').value.trim();
+      const tracking = document.getElementById('trackingInput').value.trim();
+
+      if (username.length < 2) {
+        alert('Username must be at least 2 characters');
+        return;
+      }
+
+      document.getElementById('login').style.display = 'none';
+      document.getElementById('chat').style.display = 'flex';
+      document.body.classList.add('nest-on');
+      socket.emit('join', { username, tracking });
+    }
+
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const messages = document.getElementById('messages');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (input.value) {
+        socket.emit('chat message', input.value);
+        input.value = '';
+      }
+    });
+
+    socket.on('usage', (data) => {
+      const chip = document.getElementById('usageChip');
+      if (!chip) return;
+      chip.textContent = 'Neagle: ' + data.tokens + ' tok / ' + data.calls + ' calls';
+    });
+
+    socket.on('chat message', (data) => {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      const nameClass = data.username === 'Neagle' ? 'neagle' : 'username';
+      div.innerHTML = '<span class="' + nameClass + '">' + data.username + ':</span> ' + data.message;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    });
+
+    socket.on('system', (msg) => {
+      const div = document.createElement('div');
+      div.className = 'msg system';
+      div.textContent = msg;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    });
+  </script>
+</body>
+</html>
