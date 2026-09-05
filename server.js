@@ -430,9 +430,9 @@ io.on('connection', (socket) => {
         socket.pendingUsername = existing.username;
         socket.authState = 'pending';
         console.log('[auth code] login', existing.email, existing.username, code);
-        socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 2 seconds' });
+        socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
       } else {
-        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 2 seconds' });
+        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
       }
       socket.priv = null;
       return;
@@ -440,7 +440,7 @@ io.on('connection', (socket) => {
 
     if (socket.priv.kind === 'register' && socket.priv.step === 'username') {
       if (text.length < 2 || isGuestName(text) || findUserByName(text)) {
-        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 2 seconds' });
+        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
         socket.priv = null;
         return;
       }
@@ -453,7 +453,7 @@ io.on('connection', (socket) => {
     if (socket.priv.kind === 'register' && socket.priv.step === 'email') {
       const email = text.toLowerCase();
       if (!isValidEmail(email) || findUserByEmail(email) || findUserByName(socket.priv.username)) {
-        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 2 seconds' });
+        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
         socket.priv = null;
         return;
       }
@@ -471,7 +471,7 @@ io.on('connection', (socket) => {
       socket.pendingUsername = socket.priv.username;
       socket.authState = 'pending';
       console.log('[auth code] register', email, socket.priv.username, code);
-      socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 2 seconds' });
+      socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
       socket.priv = null;
     }
   });

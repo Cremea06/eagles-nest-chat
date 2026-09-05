@@ -760,7 +760,7 @@
 
     socket.on('priv:result', (data) => {
       addPriv('SERVER', (data && data.text) || 'Fail. Closing in 2 seconds');
-      setTimeout(closePriv, 2000);
+      setTimeout(closePriv, 5000);
     });
 
     form.addEventListener('submit', (e) => {
