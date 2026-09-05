@@ -411,6 +411,35 @@
         height: min(62vh, 640px);
       }
     }
+
+    #privPane {
+      display: none;
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      width: 320px;
+      max-height: 360px;
+      z-index: 40;
+      padding: 14px;
+    }
+    #privPane.open { display: flex; flex-direction: column; }
+    #privLog {
+      flex: 1;
+      min-height: 140px;
+      overflow-y: auto;
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+    }
+    #privForm { display: flex; gap: 8px; }
+    #privInput {
+      flex: 1;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+
   </style>
 </head>
 <body>
@@ -457,6 +486,14 @@
     </div>
   </aside>
 
+    <div id="privPane" class="glass">
+    <div id="privLog"></div>
+    <form id="privForm">
+      <input id="privInput" autocomplete="off" />
+      <button>Send</button>
+    </form>
+  </div>
+  
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
@@ -684,12 +721,65 @@
     const input = document.getElementById('input');
     const messages = document.getElementById('messages');
 
+    const privPane = document.getElementById('privPane');
+    const privLog = document.getElementById('privLog');
+    const privForm = document.getElementById('privForm');
+    const privInput = document.getElementById('privInput');
+
+    function addPriv(from, text) {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = '<span class="username">' + from + ':</span> ' + text;
+      privLog.appendChild(div);
+      privLog.scrollTop = privLog.scrollHeight;
+    }
+
+    function openPriv(kind) {
+      privLog.innerHTML = '';
+      privPane.classList.add('open');
+      socket.emit('priv:open', { kind });
+      setTimeout(() => privInput.focus(), 50);
+    }
+
+    function closePriv() {
+      privPane.classList.remove('open');
+    }
+
+    privForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = privInput.value.trim();
+      if (!text) return;
+      addPriv('YOU', text);
+      socket.emit('priv:line', { text });
+      privInput.value = '';
+    });
+
+    socket.on('priv:line', (data) => {
+      addPriv((data && data.from) || 'SERVER', (data && data.text) || '');
+    });
+
+    socket.on('priv:result', (data) => {
+      addPriv('SERVER', (data && data.text) || 'Fail. Closing in 2 seconds');
+      setTimeout(closePriv, 2000);
+    });
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (input.value) {
-        socket.emit('chat message', input.value);
+      if (!input.value) return;
+      const raw = input.value.trim();
+      const cmd = raw.split(/\s+/)[0].toLowerCase();
+      if (cmd === '/login') {
         input.value = '';
+        openPriv('login');
+        return;
       }
+      if (cmd === '/register') {
+        input.value = '';
+        openPriv('register');
+        return;
+      }
+      socket.emit('chat message', input.value);
+      input.value = '';
     });
 
     socket.on('usage', (data) => {

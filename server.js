@@ -116,7 +116,8 @@ function handleCommand(socket, msg) {
       '/help or /?          - Show this help',
       '/me <action>         - Perform an action (e.g. /me waves)',
       '/who                 - Show who is online',
-      '/register            - Save an email to this username',
+      '/login               - Sign in with email',
+      '/register            - Create a username and email',
       '/cancel              - Abort registration',
       '/whoami              - Your account status',
       '/mute <username>     - Mute a user (temporary)'
@@ -149,18 +150,8 @@ function handleCommand(socket, msg) {
     return true;
   }
 
-  if (command === '/register') {
-    if (!socket.username) {
-      socket.emit('system', 'Join with a username first.');
-      return true;
-    }
-    const existing = findUserByName(socket.username);
-    if (existing) {
-      socket.emit('system', `Already registered as ${maskEmail(existing.email)}.`);
-      return true;
-    }
-    socket.reg = { step: 'awaiting_email', email: null, startedAt: Date.now() };
-    socket.emit('system', 'Registration started. Type your email. Only you see it. /cancel to abort.');
+    if (command === '/register' || command === '/login' || command === '/auth') {
+    socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
     return true;
   }
 
@@ -359,6 +350,14 @@ async function askNeagle(userMessage, username) {
   }
 }
 
+function makeAuthCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function isGuestName(name) {
+  return /^guest-user \d+$/i.test(String(name || ''));
+}
+
 io.on('connection', (socket) => {
   console.log('A user connected');
   clearReg(socket);
@@ -404,6 +403,77 @@ io.on('connection', (socket) => {
       currentLive.push({ socketId: id, username: info.username, kind: info.kind });
     }
     if (currentLive.length) socket.emit('live-state', currentLive);
+  });
+
+  socket.on('priv:open', (data = {}) => {
+    const kind = data.kind === 'register' ? 'register' : 'login';
+    socket.priv = { kind, step: kind === 'register' ? 'username' : 'email', username: '', email: '' };
+    const intro = kind === 'register'
+      ? 'Register. Enter a userName.'
+      : 'Login. Enter your email.';
+    socket.emit('priv:line', { from: 'SERVER', text: intro });
+  });
+
+  socket.on('priv:line', (data = {}) => {
+    const text = String(data.text || '').trim();
+    if (!socket.priv || !text) return;
+
+    if (socket.priv.kind === 'login') {
+      const email = text.toLowerCase();
+      const existing = isValidEmail(email) && findUserByEmail(email);
+      if (existing) {
+        const code = makeAuthCode();
+        existing.pendingCode = code;
+        existing.pendingUntil = Date.now() + 10 * 60 * 1000;
+        saveUsers(registeredUsers);
+        socket.pendingEmail = existing.email;
+        socket.pendingUsername = existing.username;
+        socket.authState = 'pending';
+        console.log('[auth code] login', existing.email, existing.username, code);
+        socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 2 seconds' });
+      } else {
+        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 2 seconds' });
+      }
+      socket.priv = null;
+      return;
+    }
+
+    if (socket.priv.kind === 'register' && socket.priv.step === 'username') {
+      if (text.length < 2 || isGuestName(text) || findUserByName(text)) {
+        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 2 seconds' });
+        socket.priv = null;
+        return;
+      }
+      socket.priv.username = text;
+      socket.priv.step = 'email';
+      socket.emit('priv:line', { from: 'SERVER', text: 'Enter email.' });
+      return;
+    }
+
+    if (socket.priv.kind === 'register' && socket.priv.step === 'email') {
+      const email = text.toLowerCase();
+      if (!isValidEmail(email) || findUserByEmail(email) || findUserByName(socket.priv.username)) {
+        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 2 seconds' });
+        socket.priv = null;
+        return;
+      }
+      const code = makeAuthCode();
+      registeredUsers.push({
+        username: socket.priv.username,
+        email,
+        createdAt: new Date().toISOString(),
+        verified: false,
+        pendingCode: code,
+        pendingUntil: Date.now() + 10 * 60 * 1000
+      });
+      saveUsers(registeredUsers);
+      socket.pendingEmail = email;
+      socket.pendingUsername = socket.priv.username;
+      socket.authState = 'pending';
+      console.log('[auth code] register', email, socket.priv.username, code);
+      socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 2 seconds' });
+      socket.priv = null;
+    }
   });
 
   socket.on('chat message', async (msg) => {
