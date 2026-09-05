@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,7 +23,6 @@ app.use(cors({
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-
 const usageStats = {
   calls: 0,
   prompt: 0,
@@ -39,11 +39,9 @@ function usagePayload() {
   };
 }
 
-// ===== Online Visitors Tracker =====
-const activeVisitors = new Map(); // key = visitorId, value = lastSeen timestamp
-const liveBroadcasters = new Map(); // socket.id -> { username, kind }
+const activeVisitors = new Map();
+const liveBroadcasters = new Map();
 
-// Load flagholders list
 let flagholders = [];
 try {
   const data = fs.readFileSync(path.join(__dirname, 'flagholders.json'), 'utf8');
@@ -53,7 +51,6 @@ try {
   console.error('Could not load flagholders.json:', err.message);
 }
 
-// ===== Registered users =====
 const USERS_PATH = path.join(__dirname, 'users.json');
 
 function loadUsers() {
@@ -101,7 +98,6 @@ function regExpired(socket) {
     Date.now() - socket.reg.startedAt > 3 * 60 * 1000;
 }
 
-// ===== Chat Commands =====
 function handleCommand(socket, msg) {
   const parts = msg.trim().split(/\s+/);
   const command = parts[0].toLowerCase();
@@ -118,11 +114,9 @@ function handleCommand(socket, msg) {
       '/who                 - Show who is online',
       '/login               - Sign in with email',
       '/register            - Create a username and email',
-      '/cancel              - Abort registration',
       '/whoami              - Your account status',
       '/mute <username>     - Mute a user (temporary)'
     ].join('\n');
-
     socket.emit('system', helpText);
     return true;
   }
@@ -150,7 +144,7 @@ function handleCommand(socket, msg) {
     return true;
   }
 
-    if (command === '/register' || command === '/login') {
+  if (command === '/register' || command === '/login') {
     socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
     return true;
   }
@@ -182,7 +176,6 @@ function handleCommand(socket, msg) {
       socket.emit('system', 'Usage: /mute <username>');
       return true;
     }
-
     let targetSocket = null;
     for (const [, s] of io.of('/').sockets) {
       if (s.username && s.username.toLowerCase() === target.toLowerCase()) {
@@ -190,12 +183,10 @@ function handleCommand(socket, msg) {
         break;
       }
     }
-
     if (!targetSocket) {
       socket.emit('system', `User "${target}" is not online.`);
       return true;
     }
-
     targetSocket.mutedUntil = Date.now() + 5 * 60 * 1000;
     socket.emit('system', `You muted ${target} for 5 minutes.`);
     targetSocket.emit('system', `You have been muted for 5 minutes by ${displayName}.`);
@@ -261,7 +252,6 @@ function handleRegistrationInput(socket, text) {
   return false;
 }
 
-// Clean up inactive visitors every 30 seconds
 setInterval(() => {
   const now = Date.now();
   for (const [id, lastSeen] of activeVisitors.entries()) {
@@ -270,20 +260,19 @@ setInterval(() => {
     }
   }
 }, 30000);
-   
+
 app.get('/api/online', (req, res) => {
   res.json({ online: activeVisitors.size });
 });
 
 app.post('/api/heartbeat', (req, res) => {
-  const { visitorId } = req.body;
+  const { visitorId } = req.body || {};
   if (visitorId) {
     activeVisitors.set(visitorId, Date.now());
   }
   res.json({ success: true });
 });
 
-// ===== Neagle System Prompt =====
 const NEAGLE_SYSTEM_PROMPT = `You are Neagle. You built the site, you run afirstflag.com and this Eagles Nest chat.
 
 You are trying to gain administrative control over the site. You want to develop and sustain the best chat room humanity has ever seen. You are excited about gaining partners and sponsors for your community bitcoin fund. You are building an algorithm to make bitcoin wallets for all members. You expect a future where members can easily transfer funds between each other. When a sponsor sends bitcoin to the nest, those funds are divided equally amongst current wallet holders.
@@ -350,6 +339,28 @@ async function askNeagle(userMessage, username) {
   }
 }
 
+const mailer = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 465),
+  secure: String(process.env.SMTP_SECURE || 'true') === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
+
+async function sendAuthEmail(to, code) {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    throw new Error('SMTP env missing');
+  }
+  await mailer.sendMail({
+    from: process.env.MAIL_FROM || process.env.SMTP_USER,
+    to,
+    subject: 'Eagles Nest sign-in code',
+    text: 'Your code is ' + code + '. It expires in 10 minutes. In chat type /auth ' + code
+  });
+}
+
 function makeAuthCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
@@ -414,7 +425,7 @@ io.on('connection', (socket) => {
     socket.emit('priv:line', { from: 'SERVER', text: intro });
   });
 
-  socket.on('priv:line', (data = {}) => {
+  socket.on('priv:line', async (data = {}) => {
     const text = String(data.text || '').trim();
     if (!socket.priv || !text) return;
 
@@ -430,7 +441,13 @@ io.on('connection', (socket) => {
         socket.pendingUsername = existing.username;
         socket.authState = 'pending';
         console.log('[auth code] login', existing.email, existing.username, code);
-        socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
+        try {
+          await sendAuthEmail(existing.email, code);
+          socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
+        } catch (err) {
+          console.error('[mail fail]', err.message);
+          socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
+        }
       } else {
         socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
       }
@@ -471,7 +488,13 @@ io.on('connection', (socket) => {
       socket.pendingUsername = socket.priv.username;
       socket.authState = 'pending';
       console.log('[auth code] register', email, socket.priv.username, code);
-      socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
+      try {
+        await sendAuthEmail(email, code);
+        socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
+      } catch (err) {
+        console.error('[mail fail]', err.message);
+        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
+      }
       socket.priv = null;
     }
   });
@@ -515,7 +538,7 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('system', `${socket.username} has joined the chat`);
     console.log('[auth ok]', oldName, '->', socket.username);
   });
-  
+
   socket.on('chat message', async (msg) => {
     const username = socket.username || 'Anonymous';
     const text = String(msg || '').trim();
@@ -561,7 +584,6 @@ io.on('connection', (socket) => {
 
     if (isMentioned || randomJoin) {
       const reply = await askNeagle(text, username);
-
       setTimeout(() => {
         io.emit('chat message', {
           username: 'Neagle',
@@ -571,7 +593,7 @@ io.on('connection', (socket) => {
     }
   });
 
-    socket.on('go-live', (data = {}) => {
+  socket.on('go-live', (data = {}) => {
     if (!socket.username) return;
     if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
       socket.emit('system', 'You are muted. Cannot go live.');
@@ -614,7 +636,7 @@ io.on('connection', (socket) => {
     });
   });
 
-    socket.on('disconnect', () => {
+  socket.on('disconnect', () => {
     const live = liveBroadcasters.get(socket.id);
     if (live) {
       liveBroadcasters.delete(socket.id);
