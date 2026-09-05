@@ -364,17 +364,30 @@ io.on('connection', (socket) => {
   clearReg(socket);
 
   socket.on('join', (data) => {
-    let username;
+    let username = '';
     let tracking = '';
 
     if (typeof data === 'string') {
       username = data;
-    } else {
-      username = data.username;
+    } else if (data && typeof data === 'object') {
+      username = (data.username || '').trim();
       tracking = (data.tracking || '').trim();
     }
 
+    if (!username) {
+      const taken = new Set();
+      for (const [, s] of io.of('/').sockets) {
+        if (s.username) taken.add(s.username.toLowerCase());
+      }
+      let n;
+      do {
+        n = Math.floor(1000 + Math.random() * 9000);
+        username = 'Guest-User ' + n;
+      } while (taken.has(username.toLowerCase()));
+    }
+
     socket.username = username;
+    socket.isGuest = /^guest-user \d+$/i.test(username);
 
     const isFlagholder = tracking && flagholders.includes(tracking);
     socket.isFlagholder = isFlagholder;
@@ -382,6 +395,7 @@ io.on('connection', (socket) => {
 
     const displayName = isFlagholder ? `${username} (flagholder)` : username;
 
+    socket.emit('joined', { username });
     socket.broadcast.emit('system', `${displayName} joined the chat`);
     socket.emit('system', `Welcome to Eagles Nest, ${displayName}! Type /help for commands.`);
     socket.emit('usage', usagePayload());

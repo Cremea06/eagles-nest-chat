@@ -660,20 +660,25 @@
       setStatus('Live stream ended.');
     });
 
-    function joinChat() {
-      const username = document.getElementById('usernameInput').value.trim();
-      const tracking = document.getElementById('trackingInput').value.trim();
-
-      if (username.length < 2) {
-        alert('Username must be at least 2 characters');
-        return;
-      }
-
+    function showRoom() {
       document.getElementById('login').style.display = 'none';
       document.getElementById('chat').style.display = 'flex';
       document.body.classList.add('nest-on');
-      socket.emit('join', { username, tracking });
     }
+
+    function joinChat() {
+      showRoom();
+      socket.emit('join', {});
+    }
+
+    socket.on('connect', () => {
+      showRoom();
+      socket.emit('join', {});
+    });
+
+    socket.on('joined', (data) => {
+      window.guestName = data && data.username;
+    });
 
     const form = document.getElementById('form');
     const input = document.getElementById('input');
