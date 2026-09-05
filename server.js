@@ -150,7 +150,7 @@ function handleCommand(socket, msg) {
     return true;
   }
 
-    if (command === '/register' || command === '/login' || command === '/auth') {
+    if (command === '/register' || command === '/login') {
     socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
     return true;
   }
@@ -476,6 +476,46 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('auth:try', (data = {}) => {
+    const code = String(data.code || '').trim();
+    const guest = isGuestName(socket.username) && socket.authState !== 'pending';
+    console.log('[auth:try]', code, socket.authState, socket.pendingEmail, socket.username);
+
+    if (guest || socket.authState !== 'pending' || !code) {
+      socket.emit('system', 'Unknown command: /auth. Type /help for a list.');
+      return;
+    }
+
+    const email = socket.pendingEmail;
+    const user = findUserByEmail(email);
+    const ok = user &&
+      String(user.pendingCode) === code &&
+      user.pendingUntil &&
+      Date.now() < user.pendingUntil;
+
+    if (!ok) {
+      socket.emit('system', 'Unknown command: /auth. Type /help for a list.');
+      return;
+    }
+
+    user.verified = true;
+    user.pendingCode = null;
+    user.pendingUntil = null;
+    saveUsers(registeredUsers);
+
+    const oldName = socket.username;
+    socket.username = user.username;
+    socket.isGuest = false;
+    socket.authState = 'authed';
+    socket.pendingEmail = null;
+    socket.pendingUsername = null;
+
+    socket.emit('joined', { username: socket.username });
+    socket.emit('system', 'Complete.');
+    socket.broadcast.emit('system', `${socket.username} has joined the chat`);
+    console.log('[auth ok]', oldName, '->', socket.username);
+  });
+  
   socket.on('chat message', async (msg) => {
     const username = socket.username || 'Anonymous';
     const text = String(msg || '').trim();

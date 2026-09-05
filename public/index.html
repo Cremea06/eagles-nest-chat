@@ -778,6 +778,12 @@
         openPriv('register');
         return;
       }
+      if (cmd === '/auth') {
+        const code = raw.split(/\s+/)[1] || '';
+        input.value = '';
+        socket.emit('auth:try', { code });
+        return;
+      }
       socket.emit('chat message', input.value);
       input.value = '';
     });
