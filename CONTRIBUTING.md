@@ -15,7 +15,7 @@ You do **not** need the GitHub “Download for…” menu (that installs editors
 
 ## Chat commands (this repo)
 
-New **Open**-tier commands are welcome. See the command Issue on this repo after you open it.
+New **Open**-tier commands are welcome. 
 
 | Tier | Who can add | Examples | Where it runs |
 | --- | --- | --- | --- |
