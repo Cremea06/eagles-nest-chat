@@ -3,8 +3,7 @@
 ## Current help wanted
 
 - Website: contributor cards — [afirstflag#1](https://github.com/Cremea06/afirstflag/issues/1)
-- Chat: [open-tier commands — open an Issue on this repo and link it here](https://github.com/Cremea06/eagles-nest-chat/issues/1)
-
+- Chat: open-tier commands — [eagles-nest-chat#1](https://github.com/Cremea06/eagles-nest-chat/issues/1)
 
 Thanks for helping. This project is split across two public repos:
 
