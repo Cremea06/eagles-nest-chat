@@ -1,11 +1,34 @@
 # Contributing to A First Flag
 
+## Current help wanted
+
+- Website: contributor cards — [afirstflag#1](https://github.com/Cremea06/afirstflag/issues/1)
+- Chat: open-tier commands — open an Issue on this repo and link it here
+
+
 Thanks for helping. This project is split across two public repos:
 
 - Website: https://github.com/Cremea06/afirstflag
 - Chat app: https://github.com/Cremea06/eagles-nest-chat
 
 You do **not** need the GitHub “Download for…” menu (that installs editors / Copilot). Use **Code → clone** or **Code → Download ZIP**.
+
+
+## Chat commands (this repo)
+
+New **Open**-tier commands are welcome. See the command Issue on this repo after you open it.
+
+| Tier | Who can add | Examples | Where it runs |
+| --- | --- | --- | --- |
+| Open | Anyone (`good first issue`) | `/help` text, `/me`, `/flip`, `/time`, `/shrug` | Cosmetic only. No files, APIs, or accounts. |
+| Trusted | Maintainer review | `/who`, room topic, `/seen` | Reads presence only |
+| Locked | Maintainer only | `/auth`, `/mute`, `/register`, mail, wallets, AI | Accounts, money, or secrets. PRs that touch these will be closed. |
+
+Rules for Open commands:
+
+- Must be listed in `/help`
+- Reply to the sender, or a short room line like `/me` — no spam loops
+- No reads/writes of `.env`, `users.json`, mail, Stripe, or the xAI API
 
 ## First-time setup
 
@@ -117,21 +140,6 @@ git push -u origin fix/short-description
 - Keep the site and chat repos separate unless a change truly needs both.
 - Say what you tested (browser, page, or chat flow).
 
-## Chat commands (this repo)
-
-New **Open**-tier commands are welcome. See the command Issue on this repo after you open it.
-
-| Tier | Who can add | Examples | Where it runs |
-| --- | --- | --- | --- |
-| Open | Anyone (`good first issue`) | `/help` text, `/me`, `/flip`, `/time`, `/shrug` | Cosmetic only. No files, APIs, or accounts. |
-| Trusted | Maintainer review | `/who`, room topic, `/seen` | Reads presence only |
-| Locked | Maintainer only | `/auth`, `/mute`, `/register`, mail, wallets, AI | Accounts, money, or secrets. PRs that touch these will be closed. |
-
-Rules for Open commands:
-
-- Must be listed in `/help`
-- Reply to the sender, or a short room line like `/me` — no spam loops
-- No reads/writes of `.env`, `users.json`, mail, Stripe, or the xAI API
 
 ## Questions
 
