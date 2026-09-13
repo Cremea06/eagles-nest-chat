@@ -283,7 +283,7 @@ app.post('/api/heartbeat', (req, res) => {
 });
 
 
-// CHG-002 — Bitcoin address lookup (any valid bc1 → Mempool.space; no allowlist)
+// CHG-002 — Bitcoin address lookup (mainnet 1…/3…/bc1q…/bc1p… → Mempool.space; no allowlist)
 const btcLookupRate = new Map(); // ip -> { count, windowStart }
 
 function getClientIp(req) {
@@ -325,6 +325,41 @@ function looksLikePrivateKeyMaterial(raw) {
   return false;
 }
 
+
+function isBitcoinMainnetAddress(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  // Single token only — no spaces, commas, or multi-line pastes
+  if (/\s/.test(s) || s.includes(',') || s.includes(';')) return false;
+
+  // Reject testnet, regtest, Liquid / Elements-style prefixes
+  if (/^(tb1|bcrt1|lq1|ert1|tex1|ex1)/i.test(s)) return false;
+
+  // Bech32 (bc1q…) / Bech32m (bc1p…) — mainnet only; no mixed case
+  if (/^bc1/i.test(s)) {
+    if (s !== s.toLowerCase() && s !== s.toUpperCase()) return false;
+    const lower = s.toLowerCase();
+    // charset: qpzry9x8gf2tvdw0s3jn54khce6mua7l
+    if (!/^bc1[qp][qpzry9x8gf2tvdw0s3jn54khce6mua7l]{6,87}$/.test(lower)) return false;
+    if (lower.length < 14 || lower.length > 90) return false;
+    return true;
+  }
+
+  // Legacy Base58Check P2PKH (1…) / P2SH (3…)
+  // Alphabet excludes 0 O I l
+  if (/^[13][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(s)) {
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeBitcoinAddress(raw) {
+  const s = String(raw || '').trim();
+  if (/^bc1/i.test(s)) return s.toLowerCase();
+  return s; // Base58 is case-sensitive
+}
+
 function satsToBtc(sats) {
   const n = Number(sats) || 0;
   return n / 1e8;
@@ -353,7 +388,7 @@ app.post('/api/flag-wallet-lookup', async (req, res) => {
   if (!addressRaw) {
     return res.status(400).json({
       error: 'empty',
-      message: 'Paste a Bitcoin public address (bc1…).'
+      message: 'Paste a public Bitcoin address.'
     });
   }
 
@@ -365,14 +400,14 @@ app.post('/api/flag-wallet-lookup', async (req, res) => {
     });
   }
 
-  if (!/^bc1[a-z0-9]{25,90}$/i.test(addressRaw)) {
+  if (!isBitcoinMainnetAddress(addressRaw)) {
     return res.status(400).json({
       error: 'not_btc',
       message: "That doesn't look like a Bitcoin address."
     });
   }
 
-  const addr = addressRaw.toLowerCase();
+  const addr = normalizeBitcoinAddress(addressRaw);
   const mempoolApi = 'https://mempool.space/api/address/' + encodeURIComponent(addr);
   const controller = new AbortController();
   const timer = setTimeout(function () { controller.abort(); }, 8000);
