@@ -18,6 +18,8 @@ let nestCount = process.env.NEST_SIMULATE_FULL === '1' ? 32 : 0;
 const NEST_CAP = 32;
 /** @type {Map<string, { exp: number, jti: string }>} handle -> active mint */
 const nestMints = new Map();
+/** @type {Set<string>} single-use JWT jti values already consumed by /nest handshake */
+const nestUsedJtis = new Set();
 
 function purgeExpiredNestMints() {
   const now = Date.now();
@@ -49,6 +51,11 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+app.get(['/world', '/world/'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'world', 'index.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 const usageStats = {
@@ -913,6 +920,86 @@ io.on('connection', (socket) => {
     }
     if (socket.username) {
       socket.broadcast.emit('system', socket.username + ' left the chat');
+    }
+  });
+});
+
+// CHG-004 Slice 3 — Nest World empty /world + /nest namespace JWT handshake (no three.js)
+const nestNs = io.of('/nest');
+
+nestNs.use((socket, next) => {
+  try {
+    const raw = socket.handshake && socket.handshake.query && socket.handshake.query.token;
+    const token = Array.isArray(raw) ? raw[0] : raw;
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      return next(new Error('missing_token'));
+    }
+
+    const secret = process.env.WORLD_TOKEN_SECRET;
+    if (!secret) {
+      console.error('[nest-ns] WORLD_TOKEN_SECRET is not set');
+      return next(new Error('not_configured'));
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(token.trim(), secret);
+    } catch (err) {
+      return next(new Error('invalid_token'));
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return next(new Error('invalid_claims'));
+    }
+    if (typeof payload.sub !== 'string' || !payload.sub.trim()) {
+      return next(new Error('invalid_claims'));
+    }
+    if (typeof payload.jti !== 'string' || !payload.jti) {
+      return next(new Error('invalid_claims'));
+    }
+    if (typeof payload.sid !== 'string' || !payload.sid) {
+      return next(new Error('invalid_claims'));
+    }
+    if (typeof payload.nonce !== 'string' || !payload.nonce) {
+      return next(new Error('invalid_claims'));
+    }
+
+    if (nestUsedJtis.has(payload.jti)) {
+      return next(new Error('token_used'));
+    }
+    if (nestCount >= NEST_CAP) {
+      return next(new Error('nest_full'));
+    }
+
+    // Reserve jti immediately so two racing handshakes cannot both succeed
+    nestUsedJtis.add(payload.jti);
+    socket.data.nestHandle = payload.sub.trim();
+    socket.data.nestJti = payload.jti;
+    return next();
+  } catch (err) {
+    return next(new Error('invalid_token'));
+  }
+});
+
+nestNs.on('connection', (socket) => {
+  const handle = socket.data && socket.data.nestHandle;
+  if (!handle) {
+    console.log('[nest-ns] fail: missing handle after auth');
+    socket.disconnect(true);
+    return;
+  }
+
+  nestCount += 1;
+  socket.username = handle;
+  socket.data.nestCounted = true;
+  console.log('[nest-ns] join', handle, 'nestCount=' + nestCount);
+  socket.emit('joined', { handle: handle });
+
+  socket.on('disconnect', (reason) => {
+    if (socket.data && socket.data.nestCounted) {
+      nestCount = Math.max(0, nestCount - 1);
+      socket.data.nestCounted = false;
+      console.log('[nest-ns] leave', handle, 'nestCount=' + nestCount, 'reason=' + reason);
     }
   });
 });

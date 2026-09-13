@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nest World — door</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1220;
+      --panel: rgba(15, 23, 42, 0.92);
+      --line: rgba(148, 163, 184, 0.28);
+      --text: #e5eefc;
+      --muted: #94a3b8;
+      --ok: #86efac;
+      --bad: #fca5a5;
+      --accent: #93c5fd;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(59, 130, 246, 0.18), transparent 60%),
+        var(--bg);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .door {
+      width: min(440px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 28px 24px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 1.35rem;
+      letter-spacing: 0.02em;
+    }
+    .sub {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .handle {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1.05rem;
+      color: var(--accent);
+      min-height: 1.4em;
+      margin-bottom: 14px;
+      word-break: break-word;
+    }
+    .status {
+      font-size: 0.98rem;
+      line-height: 1.45;
+      min-height: 3.2em;
+    }
+    .status.ok { color: var(--ok); }
+    .status.bad { color: var(--bad); }
+    .status.wait { color: var(--muted); }
+    .hint {
+      margin-top: 18px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="door" aria-live="polite">
+    <h1>Nest World — door</h1>
+    <p class="sub">Empty room for now. Handshake only.</p>
+    <div class="handle" id="handle">—</div>
+    <div class="status wait" id="status">Waiting for pass…</div>
+    <p class="hint">Open this page from a /nest link. No second login.</p>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    (function () {
+      var handleEl = document.getElementById('handle');
+      var statusEl = document.getElementById('status');
+
+      function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = 'status ' + (kind || 'wait');
+      }
+
+      var params = new URLSearchParams(window.location.search);
+      var token = params.get('token');
+
+      if (!token) {
+        setStatus('No pass on this link. Go back to chat and type /nest.', 'bad');
+        console.log('[world] fail: missing token');
+        return;
+      }
+
+      setStatus('Connecting to Nest World…', 'wait');
+      console.log('[world] connecting /nest with token');
+
+      var socket = io('/nest', {
+        transports: ['websocket', 'polling'],
+        query: { token: token }
+      });
+
+      socket.on('joined', function (data) {
+        var handle = (data && data.handle) || '';
+        handleEl.textContent = handle || '(unknown)';
+        setStatus('You are in Nest World (door). Scene comes later.', 'ok');
+        console.log('[world] join', handle);
+      });
+
+      socket.on('connect_error', function (err) {
+        var reason = (err && err.message) ? err.message : 'connect_error';
+        setStatus('Could not enter: ' + reason, 'bad');
+        console.log('[world] fail', reason);
+      });
+
+      socket.on('disconnect', function (reason) {
+        console.log('[world] disconnect', reason);
+      });
+    })();
+  </script>
+</body>
+</html>
