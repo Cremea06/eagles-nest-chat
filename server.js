@@ -14,7 +14,16 @@ const io = new Server(server);
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
 app.use(cors({
-  origin: ['https://afirstflag.com', 'https://www.afirstflag.com'],
+  origin: [
+    'https://afirstflag.com',
+    'https://www.afirstflag.com',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5500',
+    'http://127.0.0.1:5500',
+    'http://localhost:8765',
+    'http://127.0.0.1:8765'
+  ],
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
   credentials: false
@@ -272,6 +281,150 @@ app.post('/api/heartbeat', (req, res) => {
   }
   res.json({ success: true });
 });
+
+
+// CHG-002 — Bitcoin address lookup (any valid bc1 → Mempool.space; no allowlist)
+const btcLookupRate = new Map(); // ip -> { count, windowStart }
+
+function getClientIp(req) {
+  const xf = req.headers['x-forwarded-for'];
+  if (typeof xf === 'string' && xf.trim()) {
+    return xf.split(',')[0].trim();
+  }
+  return req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+}
+
+function truncateForLog(value) {
+  const s = String(value || '');
+  if (!s) return '';
+  return s.slice(0, 8) + (s.length > 8 ? '…' : '');
+}
+
+function looksLikePrivateKeyMaterial(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length >= 12 && words.every((w) => /^[a-zA-Z]+$/.test(w))) {
+    return true;
+  }
+
+  if (/^xprv/i.test(s) || /^yprv/i.test(s) || /^zprv/i.test(s) || /^tprv/i.test(s)) {
+    return true;
+  }
+
+  const hex = s.replace(/^0x/i, '');
+  if (/^[0-9a-fA-F]{64}$/.test(hex)) {
+    return true;
+  }
+
+  if (/^[5KL][1-9A-HJ-NP-Za-km-z]{50,}$/.test(s)) {
+    return true;
+  }
+
+  return false;
+}
+
+function satsToBtc(sats) {
+  const n = Number(sats) || 0;
+  return n / 1e8;
+}
+
+app.post('/api/flag-wallet-lookup', async (req, res) => {
+  const ip = getClientIp(req);
+  const now = Date.now();
+  let bucket = btcLookupRate.get(ip);
+  if (!bucket || now - bucket.windowStart >= 60000) {
+    bucket = { count: 0, windowStart: now };
+    btcLookupRate.set(ip, bucket);
+  }
+  bucket.count += 1;
+  if (bucket.count > 20) {
+    return res.status(429).json({
+      error: 'rate_limit',
+      message: 'Too many lookups. Wait a bit and try again.'
+    });
+  }
+
+  const body = req.body || {};
+  const rawInput = body.address != null ? body.address : body.q;
+  const addressRaw = typeof rawInput === 'string' ? rawInput.trim() : '';
+
+  if (!addressRaw) {
+    return res.status(400).json({
+      error: 'empty',
+      message: 'Paste a Bitcoin public address (bc1…).'
+    });
+  }
+
+  if (looksLikePrivateKeyMaterial(addressRaw)) {
+    console.warn('btc-lookup rejected private-key-like input prefix=%s ip=%s', truncateForLog(addressRaw), ip);
+    return res.status(400).json({
+      error: 'private_key',
+      message: 'Never paste private keys. Public address only.'
+    });
+  }
+
+  if (!/^bc1[a-z0-9]{25,90}$/i.test(addressRaw)) {
+    return res.status(400).json({
+      error: 'not_btc',
+      message: "That doesn't look like a Bitcoin address."
+    });
+  }
+
+  const addr = addressRaw.toLowerCase();
+  const mempoolApi = 'https://mempool.space/api/address/' + encodeURIComponent(addr);
+  const controller = new AbortController();
+  const timer = setTimeout(function () { controller.abort(); }, 8000);
+
+  try {
+    const explorerRes = await fetch(mempoolApi, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    });
+
+    if (!explorerRes.ok) {
+      console.error('mempool.space status', explorerRes.status, 'for', truncateForLog(addr));
+      return res.status(502).json({
+        error: 'explorer',
+        message: "Couldn't reach the blockchain explorer. Try again in a minute."
+      });
+    }
+
+    const data = await explorerRes.json();
+    const chain = data.chain_stats || {};
+    const mem = data.mempool_stats || {};
+    const funded = Number(chain.funded_txo_sum) || 0;
+    const spent = Number(chain.spent_txo_sum) || 0;
+
+    const payload = {
+      ok: true,
+      address: addr,
+      balance_btc: satsToBtc(funded - spent),
+      received_btc: satsToBtc(funded),
+      spent_btc: satsToBtc(spent),
+      tx_count: Number(chain.tx_count) || 0,
+      mempool_url: 'https://mempool.space/address/' + addr
+    };
+
+    if (mem && (mem.funded_txo_sum != null || mem.spent_txo_sum != null)) {
+      payload.unconfirmed_received_btc = satsToBtc(mem.funded_txo_sum);
+      payload.unconfirmed_spent_btc = satsToBtc(mem.spent_txo_sum);
+    }
+
+    return res.json(payload);
+  } catch (err) {
+    console.error('btc-lookup explorer fail:', err && err.name, err && err.message);
+    return res.status(502).json({
+      error: 'explorer',
+      message: "Couldn't reach the blockchain explorer. Try again in a minute."
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 
 const NEAGLE_SYSTEM_PROMPT = `You are Neagle. You are the owner and operator of the last chatroom at the end of the universe.
 
