@@ -6,10 +6,29 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// CHG-003 Slice 1 — Nest World /nest mint (no world page yet; do not increment nestCount)
+let nestCount = process.env.NEST_SIMULATE_FULL === '1' ? 32 : 0;
+const NEST_CAP = 32;
+/** @type {Map<string, { exp: number, jti: string }>} handle -> active mint */
+const nestMints = new Map();
+
+function purgeExpiredNestMints() {
+  const now = Date.now();
+  for (const [handle, info] of nestMints) {
+    if (!info || info.exp <= now) nestMints.delete(handle);
+  }
+}
+
+function isRegisteredAuthed(socket) {
+  return socket.authState === 'authed' && !socket.isGuest;
+}
 
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
@@ -124,7 +143,8 @@ function handleCommand(socket, msg) {
       '/login               - Sign in with email',
       '/register            - Create a username and email',
       '/whoami              - Your account status',
-      '/mute <username>     - Mute a user (temporary)'
+      '/mute <username>     - Mute a user (temporary)',
+      '/nest                - Mint a Nest World pass (registered members)'
     ].join('\n');
     socket.emit('system', helpText);
     return true;
@@ -199,6 +219,62 @@ function handleCommand(socket, msg) {
     targetSocket.mutedUntil = Date.now() + 5 * 60 * 1000;
     socket.emit('system', `You muted ${target} for 5 minutes.`);
     targetSocket.emit('system', `You have been muted for 5 minutes by ${displayName}.`);
+    return true;
+  }
+
+  if (command === '/nest') {
+    purgeExpiredNestMints();
+
+    if (nestCount >= NEST_CAP) {
+      socket.emit('system', 'The Nest World is full right now (32). Try again later.');
+      return true;
+    }
+
+    if (!isRegisteredAuthed(socket)) {
+      socket.emit('system', 'Only registered members can enter Nest World. Type /register or /login first.');
+      return true;
+    }
+
+    const handle = String(socket.username || '').trim();
+    if (!handle) {
+      socket.emit('system', 'Only registered members can enter Nest World. Type /register or /login first.');
+      return true;
+    }
+
+    const existing = nestMints.get(handle.toLowerCase());
+    if (existing && existing.exp > Date.now()) {
+      socket.emit('system', 'You already have an active Nest World pass. Open that link or wait for it to expire (~2 min).');
+      return true;
+    }
+
+    const secret = process.env.WORLD_TOKEN_SECRET;
+    if (!secret) {
+      console.error('[nest] WORLD_TOKEN_SECRET is not set');
+      socket.emit('system', 'Nest World is not configured yet. Try again later.');
+      return true;
+    }
+
+    const jti = crypto.randomUUID();
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const token = jwt.sign(
+      {
+        sub: handle,
+        sid: socket.id,
+        jti,
+        nonce
+      },
+      secret,
+      { expiresIn: 120 }
+    );
+
+    // Track active mint — do NOT increment nestCount in Slice 1
+    nestMints.set(handle.toLowerCase(), {
+      exp: Date.now() + 120000,
+      jti
+    });
+
+    const url = 'https://chat.afirstflag.com/world?token=' + encodeURIComponent(token);
+    socket.emit('system', 'Nest World pass minted (single-use, expires in ~2 minutes). Enter: ' + url);
     return true;
   }
 
@@ -732,8 +808,11 @@ io.on('connection', (socket) => {
     if (!text) return;
 
     if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
-      socket.emit('system', 'You are currently muted.');
-      return;
+      const mutedCmd = text.split(/\s+/)[0].toLowerCase();
+      if (mutedCmd !== '/nest') {
+        socket.emit('system', 'You are currently muted.');
+        return;
+      }
     }
 
     if (!socket.reg) clearReg(socket);
