@@ -20,6 +20,10 @@ const NEST_CAP = 32;
 const nestMints = new Map();
 /** @type {Set<string>} single-use JWT jti values already consumed by /nest handshake */
 const nestUsedJtis = new Set();
+/** @type {Map<string, { id: string, handle: string }>} socket.id -> player */
+const nestPlayers = new Map();
+/** @type {Map<string, any>} handleLower -> live /nest socket (one tab per handle) */
+const nestByHandle = new Map();
 
 function purgeExpiredNestMints() {
   const now = Date.now();
@@ -924,7 +928,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// CHG-004 Slice 3 — Nest World empty /world + /nest namespace JWT handshake (no three.js)
+// CHG-004/005 — Nest World /nest JWT handshake + presence roster (no three.js)
 const nestNs = io.of('/nest');
 
 nestNs.use((socket, next) => {
@@ -989,11 +993,33 @@ nestNs.on('connection', (socket) => {
     return;
   }
 
+  // CHG-005 — one live world tab per handle: disconnect prior /nest socket first
+  const handleKey = handle.toLowerCase();
+  const prev = nestByHandle.get(handleKey);
+  if (prev && prev.id !== socket.id) {
+    if (prev.data && prev.data.nestCounted) {
+      nestCount = Math.max(0, nestCount - 1);
+      prev.data.nestCounted = false;
+    }
+    nestPlayers.delete(prev.id);
+    nestByHandle.delete(handleKey);
+    nestNs.emit('playerLeft', { id: prev.id });
+    console.log('[nest-ns] replace-tab', handle, 'oldId=' + prev.id);
+    prev.disconnect(true);
+  }
+
   nestCount += 1;
   socket.username = handle;
   socket.data.nestCounted = true;
+  nestPlayers.set(socket.id, { id: socket.id, handle: handle });
+  nestByHandle.set(handleKey, socket);
   console.log('[nest-ns] join', handle, 'nestCount=' + nestCount);
+
+  // currentPlayers includes self so B sees A and B
+  const roster = Array.from(nestPlayers.values());
   socket.emit('joined', { handle: handle });
+  socket.emit('currentPlayers', roster);
+  socket.broadcast.emit('playerJoined', { id: socket.id, handle: handle });
 
   socket.on('disconnect', (reason) => {
     if (socket.data && socket.data.nestCounted) {
@@ -1001,6 +1027,11 @@ nestNs.on('connection', (socket) => {
       socket.data.nestCounted = false;
       console.log('[nest-ns] leave', handle, 'nestCount=' + nestCount, 'reason=' + reason);
     }
+    nestPlayers.delete(socket.id);
+    if (nestByHandle.get(handleKey) === socket) {
+      nestByHandle.delete(handleKey);
+    }
+    nestNs.emit('playerLeft', { id: socket.id });
   });
 });
 

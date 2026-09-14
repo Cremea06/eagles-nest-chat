@@ -58,11 +58,48 @@
     .status {
       font-size: 0.98rem;
       line-height: 1.45;
-      min-height: 3.2em;
+      min-height: 2.4em;
     }
     .status.ok { color: var(--ok); }
     .status.bad { color: var(--bad); }
     .status.wait { color: var(--muted); }
+    .roster-wrap {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+    .roster-wrap h2 {
+      margin: 0 0 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    #player-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 6px;
+    }
+    #player-list li {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.92rem;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    #player-list li.self {
+      border-color: rgba(147, 197, 253, 0.45);
+      color: var(--accent);
+    }
+    #player-list:empty::after {
+      content: "No one in the nest yet.";
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
     .hint {
       margin-top: 18px;
       font-size: 0.8rem;
@@ -73,9 +110,13 @@
 <body>
   <main class="door" aria-live="polite">
     <h1>Nest World — door</h1>
-    <p class="sub">Empty room for now. Handshake only.</p>
+    <p class="sub">Presence only. Scene comes later.</p>
     <div class="handle" id="handle">—</div>
     <div class="status wait" id="status">Waiting for pass…</div>
+    <div class="roster-wrap" id="roster-wrap" hidden>
+      <h2>In the nest</h2>
+      <ul id="player-list"></ul>
+    </div>
     <p class="hint">Open this page from a /nest link. No second login.</p>
   </main>
 
@@ -84,10 +125,31 @@
     (function () {
       var handleEl = document.getElementById('handle');
       var statusEl = document.getElementById('status');
+      var rosterWrap = document.getElementById('roster-wrap');
+      var listEl = document.getElementById('player-list');
+      var myHandle = '';
+      var myId = '';
+      var players = {}; // id -> handle
 
       function setStatus(text, kind) {
         statusEl.textContent = text;
         statusEl.className = 'status ' + (kind || 'wait');
+      }
+
+      function renderRoster() {
+        var ids = Object.keys(players);
+        listEl.innerHTML = '';
+        ids.sort(function (a, b) {
+          return String(players[a]).localeCompare(String(players[b]));
+        });
+        ids.forEach(function (id) {
+          var li = document.createElement('li');
+          var name = players[id] || id;
+          li.textContent = name;
+          if (id === myId || (myHandle && name === myHandle)) li.className = 'self';
+          listEl.appendChild(li);
+        });
+        rosterWrap.hidden = false;
       }
 
       var params = new URLSearchParams(window.location.search);
@@ -108,10 +170,35 @@
       });
 
       socket.on('joined', function (data) {
-        var handle = (data && data.handle) || '';
-        handleEl.textContent = handle || '(unknown)';
+        myHandle = (data && data.handle) || '';
+        myId = socket.id || '';
+        handleEl.textContent = myHandle || '(unknown)';
         setStatus('You are in Nest World (door). Scene comes later.', 'ok');
-        console.log('[world] join', handle);
+        console.log('[world] join', myHandle);
+      });
+
+      socket.on('currentPlayers', function (roster) {
+        players = {};
+        (roster || []).forEach(function (p) {
+          if (p && p.id) players[p.id] = p.handle || p.id;
+        });
+        if (!myId && socket.id) myId = socket.id;
+        renderRoster();
+        console.log('[world] currentPlayers', Object.keys(players).length);
+      });
+
+      socket.on('playerJoined', function (p) {
+        if (!p || !p.id) return;
+        players[p.id] = p.handle || p.id;
+        renderRoster();
+        console.log('[world] playerJoined', p.handle);
+      });
+
+      socket.on('playerLeft', function (p) {
+        if (!p || !p.id) return;
+        delete players[p.id];
+        renderRoster();
+        console.log('[world] playerLeft', p.id);
       });
 
       socket.on('connect_error', function (err) {
