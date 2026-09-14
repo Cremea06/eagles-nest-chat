@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nest World — door</title>
+  <title>Nest World — courtyard</title>
   <style>
     :root {
       color-scheme: dark;
@@ -15,6 +15,10 @@
       --ok: #86efac;
       --bad: #fca5a5;
       --accent: #93c5fd;
+      --navy: #1e3a5f;
+      --stone: #9aa3ad;
+      --wood: #8b5a2b;
+      --gold: #d4a017;
     }
     * { box-sizing: border-box; }
     body {
@@ -25,52 +29,54 @@
         radial-gradient(1200px 600px at 50% -10%, rgba(59, 130, 246, 0.18), transparent 60%),
         var(--bg);
       color: var(--text);
-      display: grid;
-      place-items: center;
-      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      padding: 20px 16px 28px;
     }
     .door {
       width: min(440px, 100%);
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 18px;
-      padding: 28px 24px;
+      padding: 22px 20px;
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
     }
     h1 {
       margin: 0 0 6px;
-      font-size: 1.35rem;
+      font-size: 1.25rem;
       letter-spacing: 0.02em;
     }
     .sub {
-      margin: 0 0 18px;
+      margin: 0 0 14px;
       color: var(--muted);
-      font-size: 0.95rem;
+      font-size: 0.92rem;
     }
     .handle {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 1.05rem;
       color: var(--accent);
       min-height: 1.4em;
-      margin-bottom: 14px;
+      margin-bottom: 10px;
       word-break: break-word;
     }
     .status {
-      font-size: 0.98rem;
+      font-size: 0.95rem;
       line-height: 1.45;
-      min-height: 2.4em;
+      min-height: 2.2em;
     }
     .status.ok { color: var(--ok); }
     .status.bad { color: var(--bad); }
     .status.wait { color: var(--muted); }
     .roster-wrap {
-      margin-top: 16px;
-      padding-top: 14px;
+      margin-top: 14px;
+      padding-top: 12px;
       border-top: 1px solid var(--line);
     }
     .roster-wrap h2 {
       margin: 0 0 8px;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: 600;
       color: var(--muted);
       text-transform: uppercase;
@@ -82,11 +88,13 @@
       padding: 0;
       display: grid;
       gap: 6px;
+      max-height: 160px;
+      overflow: auto;
     }
     #player-list li {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.92rem;
-      padding: 8px 10px;
+      font-size: 0.9rem;
+      padding: 7px 10px;
       border-radius: 10px;
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -101,16 +109,39 @@
       font-size: 0.9rem;
     }
     .hint {
-      margin-top: 18px;
-      font-size: 0.8rem;
+      margin-top: 14px;
+      font-size: 0.78rem;
       color: var(--muted);
     }
+    #courtyard-wrap {
+      width: min(960px, 100%);
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #courtyard-wrap.visible { display: flex; }
+    #courtyard {
+      width: 100%;
+      height: min(56vh, 520px);
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #071018;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    }
+    #courtyard canvas { display: block; width: 100% !important; height: 100% !important; }
+    .credit {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    .credit a { color: var(--accent); }
   </style>
 </head>
 <body>
   <main class="door" aria-live="polite">
     <h1>Nest World — door</h1>
-    <p class="sub">Presence only. Scene comes later.</p>
+    <p class="sub">Courtyard mesh after join. No walking yet.</p>
     <div class="handle" id="handle">—</div>
     <div class="status wait" id="status">Waiting for pass…</div>
     <div class="roster-wrap" id="roster-wrap" hidden>
@@ -120,16 +151,32 @@
     <p class="hint">Open this page from a /nest link. No second login.</p>
   </main>
 
+  <section id="courtyard-wrap" aria-label="Nest courtyard">
+    <div id="courtyard"></div>
+    <p class="credit">3D powered by <a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a> (MIT).</p>
+  </section>
+
   <script src="/socket.io/socket.io.js"></script>
-  <script>
+  <script type="module">
+    import * as THREE from '/world/three.min.js';
     (function () {
       var handleEl = document.getElementById('handle');
       var statusEl = document.getElementById('status');
       var rosterWrap = document.getElementById('roster-wrap');
       var listEl = document.getElementById('player-list');
+      var courtyardWrap = document.getElementById('courtyard-wrap');
+      var courtyardEl = document.getElementById('courtyard');
       var myHandle = '';
       var myId = '';
-      var players = {}; // id -> handle
+      var players = {};
+      var sceneStarted = false;
+
+      var NAVY = 0x1e3a5f;
+      var STONE = 0x9aa3ad;
+      var STONE_DARK = 0x6f7883;
+      var WOOD = 0x8b5a2b;
+      var GOLD = 0xd4a017;
+      var WATER = 0x3b6ea5;
 
       function setStatus(text, kind) {
         statusEl.textContent = text;
@@ -150,6 +197,149 @@
           listEl.appendChild(li);
         });
         rosterWrap.hidden = false;
+      }
+
+      function mat(color, opts) {
+        opts = opts || {};
+        return new THREE.MeshStandardMaterial({
+          color: color,
+          roughness: opts.roughness != null ? opts.roughness : 0.78,
+          metalness: opts.metalness != null ? opts.metalness : 0.05,
+          flatShading: false
+        });
+      }
+
+      function box(w, h, d, color, x, y, z, opts) {
+        var mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color, opts));
+        mesh.position.set(x, y, z);
+        return mesh;
+      }
+
+      function cyl(rTop, rBot, h, color, x, y, z, opts) {
+        var mesh = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 24), mat(color, opts));
+        mesh.position.set(x, y, z);
+        return mesh;
+      }
+
+      function buildCourtyardScene() {
+        if (sceneStarted) return;
+        if (!THREE || !THREE.Scene) {
+          setStatus('Courtyard library failed to load. Presence still works.', 'bad');
+          console.log('[world] three.js missing');
+          return;
+        }
+        sceneStarted = true;
+        courtyardWrap.classList.add('visible');
+
+        var scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a1524);
+        scene.fog = new THREE.Fog(0x0a1524, 70, 140);
+
+        var camera = new THREE.PerspectiveCamera(42, 1, 0.1, 300);
+        // Static overlook — no orbit or keyboard movement
+        camera.position.set(38, 34, 48);
+        camera.lookAt(0, 2, 0);
+
+        var renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        courtyardEl.appendChild(renderer.domElement);
+
+        function resize() {
+          var w = courtyardEl.clientWidth || 640;
+          var h = courtyardEl.clientHeight || 400;
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+          renderer.setSize(w, h, false);
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        scene.add(new THREE.AmbientLight(0xb8c7e0, 0.55));
+        var sun = new THREE.DirectionalLight(0xfff2d6, 1.05);
+        sun.position.set(30, 50, 20);
+        scene.add(sun);
+        var fill = new THREE.DirectionalLight(0x6ea8ff, 0.35);
+        fill.position.set(-25, 20, -15);
+        scene.add(fill);
+
+        var root = new THREE.Group();
+        scene.add(root);
+
+        // 64×64 flat stone courtyard
+        root.add(box(64, 0.6, 64, STONE, 0, 0.3, 0, { roughness: 0.9 }));
+
+        // Low rim wall (open on south for entry feel)
+        var wallH = 2.2;
+        var wallT = 1.2;
+        root.add(box(64, wallH, wallT, NAVY, 0, wallH / 2, -32 + wallT / 2));
+        root.add(box(64, wallH, wallT, NAVY, 0, wallH / 2, 32 - wallT / 2));
+        root.add(box(wallT, wallH, 64, NAVY, -32 + wallT / 2, wallH / 2, 0));
+        root.add(box(wallT, wallH, 64, NAVY, 32 - wallT / 2, wallH / 2, 0));
+        // gold cap rail
+        root.add(box(64.4, 0.25, 1.4, GOLD, 0, wallH + 0.1, -32 + wallT / 2, { metalness: 0.35, roughness: 0.45 }));
+        root.add(box(64.4, 0.25, 1.4, GOLD, 0, wallH + 0.1, 32 - wallT / 2, { metalness: 0.35, roughness: 0.45 }));
+        root.add(box(1.4, 0.25, 64.4, GOLD, -32 + wallT / 2, wallH + 0.1, 0, { metalness: 0.35, roughness: 0.45 }));
+        root.add(box(1.4, 0.25, 64.4, GOLD, 32 - wallT / 2, wallH + 0.1, 0, { metalness: 0.35, roughness: 0.45 }));
+
+        // Center plinth
+        root.add(box(14, 1.4, 14, STONE_DARK, 0, 0.6 + 0.7, 0));
+        root.add(box(12.5, 0.35, 12.5, STONE, 0, 0.6 + 1.4 + 0.175, 0));
+
+        // Empty nest bowl (ring + shallow cup) on plinth — original shapes only
+        var nestY = 0.6 + 1.4 + 0.35 + 0.55;
+        var bowl = new THREE.Mesh(
+          new THREE.SphereGeometry(2.6, 28, 18, 0, Math.PI * 2, 0, Math.PI / 2),
+          mat(WOOD, { roughness: 0.7 })
+        );
+        bowl.rotation.x = Math.PI;
+        bowl.position.set(0, nestY, 0);
+        root.add(bowl);
+        var rim = new THREE.Mesh(new THREE.TorusGeometry(2.55, 0.28, 12, 36), mat(GOLD, { metalness: 0.4, roughness: 0.4 }));
+        rim.rotation.x = Math.PI / 2;
+        rim.position.set(0, nestY + 0.05, 0);
+        root.add(rim);
+
+        // Short stairs (south side of plinth)
+        var stepW = 6;
+        var stepD = 1.1;
+        var stepH = 0.35;
+        for (var i = 0; i < 4; i++) {
+          var sy = 0.6 + stepH / 2 + i * stepH;
+          var sz = 7 + i * stepD;
+          root.add(box(stepW - i * 0.2, stepH, stepD, STONE, 0, sy, sz));
+        }
+
+        // Square pool (west)
+        root.add(box(10, 0.8, 10, STONE_DARK, -18, 0.6 + 0.4, -10));
+        var water = box(8.6, 0.35, 8.6, WATER, -18, 0.6 + 0.55, -10, { roughness: 0.25, metalness: 0.15 });
+        root.add(water);
+
+        // Four flagpoles (corners of inner court)
+        var poles = [
+          [18, 18],
+          [-18, 18],
+          [18, -18],
+          [-18, -18]
+        ];
+        poles.forEach(function (p) {
+          var px = p[0];
+          var pz = p[1];
+          root.add(box(1.6, 0.5, 1.6, STONE_DARK, px, 0.6 + 0.25, pz));
+          root.add(cyl(0.22, 0.28, 12, WOOD, px, 0.6 + 0.5 + 6, pz, { roughness: 0.65 }));
+          // small banner (flat box) — navy + gold stripe, not a brand asset
+          var flag = box(3.2, 1.6, 0.12, NAVY, px + 1.7, 0.6 + 0.5 + 11, pz, { roughness: 0.55 });
+          root.add(flag);
+          root.add(box(3.2, 0.22, 0.14, GOLD, px + 1.7, 0.6 + 0.5 + 11.55, pz, { metalness: 0.35, roughness: 0.4 }));
+        });
+
+        function tick() {
+          requestAnimationFrame(tick);
+          // gentle idle spin of nothing gameplay — only water shimmer via tiny Y bob
+          water.position.y = 0.6 + 0.55 + Math.sin(performance.now() * 0.0015) * 0.03;
+          renderer.render(scene, camera);
+        }
+        tick();
+        console.log('[world] courtyard mesh ready');
       }
 
       var params = new URLSearchParams(window.location.search);
@@ -173,8 +363,9 @@
         myHandle = (data && data.handle) || '';
         myId = socket.id || '';
         handleEl.textContent = myHandle || '(unknown)';
-        setStatus('You are in Nest World (door). Scene comes later.', 'ok');
+        setStatus('You are in Nest World. Courtyard below.', 'ok');
         console.log('[world] join', myHandle);
+        buildCourtyardScene();
       });
 
       socket.on('currentPlayers', function (roster) {
