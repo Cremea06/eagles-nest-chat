@@ -36,6 +36,57 @@ function isRegisteredAuthed(socket) {
   return socket.authState === 'authed' && !socket.isGuest;
 }
 
+function mintNestWorldPass(socket) {
+  purgeExpiredNestMints();
+
+  if (nestCount >= NEST_CAP) {
+    return { ok: false, error: 'The Nest World is full right now (32). Try again later.' };
+  }
+
+  if (!isRegisteredAuthed(socket)) {
+    return { ok: false, error: 'Only registered members can enter Nest World. Type /register or /login first.' };
+  }
+
+  const handle = String(socket.username || '').trim();
+  if (!handle) {
+    return { ok: false, error: 'Only registered members can enter Nest World. Type /register or /login first.' };
+  }
+
+  const existing = nestMints.get(handle.toLowerCase());
+  if (existing && existing.exp > Date.now()) {
+    return { ok: false, error: 'You already have an active Nest World pass. Open that link or wait for it to expire (~2 min).' };
+  }
+
+  const secret = process.env.WORLD_TOKEN_SECRET;
+  if (!secret) {
+    console.error('[nest] WORLD_TOKEN_SECRET is not set');
+    return { ok: false, error: 'Nest World is not configured yet. Try again later.' };
+  }
+
+  const jti = crypto.randomUUID();
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const token = jwt.sign(
+    {
+      sub: handle,
+      sid: socket.id,
+      jti,
+      nonce
+    },
+    secret,
+    { expiresIn: 120 }
+  );
+
+  // Track active mint — do NOT increment nestCount here (handshake still owns seat count)
+  nestMints.set(handle.toLowerCase(), {
+    exp: Date.now() + 120000,
+    jti
+  });
+
+  const url = 'https://chat.afirstflag.com/world?token=' + encodeURIComponent(token);
+  return { ok: true, url, token, handle };
+}
+
+
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
 app.use(cors({
@@ -234,58 +285,12 @@ function handleCommand(socket, msg) {
   }
 
   if (command === '/nest') {
-    purgeExpiredNestMints();
-
-    if (nestCount >= NEST_CAP) {
-      socket.emit('system', 'The Nest World is full right now (32). Try again later.');
+    const minted = mintNestWorldPass(socket);
+    if (!minted.ok) {
+      socket.emit('system', minted.error);
       return true;
     }
-
-    if (!isRegisteredAuthed(socket)) {
-      socket.emit('system', 'Only registered members can enter Nest World. Type /register or /login first.');
-      return true;
-    }
-
-    const handle = String(socket.username || '').trim();
-    if (!handle) {
-      socket.emit('system', 'Only registered members can enter Nest World. Type /register or /login first.');
-      return true;
-    }
-
-    const existing = nestMints.get(handle.toLowerCase());
-    if (existing && existing.exp > Date.now()) {
-      socket.emit('system', 'You already have an active Nest World pass. Open that link or wait for it to expire (~2 min).');
-      return true;
-    }
-
-    const secret = process.env.WORLD_TOKEN_SECRET;
-    if (!secret) {
-      console.error('[nest] WORLD_TOKEN_SECRET is not set');
-      socket.emit('system', 'Nest World is not configured yet. Try again later.');
-      return true;
-    }
-
-    const jti = crypto.randomUUID();
-    const nonce = crypto.randomBytes(16).toString('hex');
-    const token = jwt.sign(
-      {
-        sub: handle,
-        sid: socket.id,
-        jti,
-        nonce
-      },
-      secret,
-      { expiresIn: 120 }
-    );
-
-    // Track active mint — do NOT increment nestCount in Slice 1
-    nestMints.set(handle.toLowerCase(), {
-      exp: Date.now() + 120000,
-      jti
-    });
-
-    const url = 'https://chat.afirstflag.com/world?token=' + encodeURIComponent(token);
-    socket.emit('system', 'Nest World pass minted (single-use, expires in ~2 minutes). Enter: ' + url);
+    socket.emit('system', 'Nest World pass minted (single-use, expires in ~2 minutes). Enter: ' + minted.url);
     return true;
   }
 
@@ -792,6 +797,16 @@ io.on('connection', (socket) => {
     socket.emit('system', 'Complete.');
     socket.broadcast.emit('system', `${socket.username} has joined the chat`);
     console.log('[auth ok]', oldName, '->', socket.username);
+  });
+
+  socket.on('world:enter', () => {
+    const minted = mintNestWorldPass(socket);
+    if (!minted.ok) {
+      socket.emit('world:error', { message: minted.error });
+      return;
+    }
+    // Private event only — do not broadcast a public chat line
+    socket.emit('world:pass', { url: minted.url });
   });
 
   socket.on('chat message', async (msg) => {
