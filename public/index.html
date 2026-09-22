@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-  <title>Eagles Nest Chat</title>
+  <title>Milliway</title>
   <style>
     * {
       box-sizing: border-box;
@@ -255,33 +255,15 @@
       margin: 0;
     }
 
-
-    #sideCol {
+    #liveCard {
       display: none;
       grid-column: 3;
-      flex-direction: column;
-      gap: 12px;
+      padding: 12px;
       position: sticky;
       top: 16px;
-      align-self: start;
     }
 
-    body.nest-on #sideCol { display: flex; }
-
-    #liveCard, #worldCard {
-      display: block;
-      padding: 12px;
-      position: static;
-    }
-
-    #worldCard .live-head { margin-bottom: 8px; }
-
-    #worldCard .world-blurb {
-      font-size: 0.8rem;
-      line-height: 1.4;
-      color: rgba(240, 244, 248, 0.78);
-      margin: 0 0 10px;
-    }
+    body.nest-on #liveCard { display: block; }
 
     .live-head {
       display: flex;
@@ -421,7 +403,7 @@
       body.nest-on {
         grid-template-columns: 1fr minmax(280px, 920px) 1fr;
       }
-      body.nest-on #sideCol {
+      body.nest-on #liveCard {
         grid-column: 2;
         position: static;
       }
@@ -462,7 +444,7 @@
 </head>
 <body>
   <div id="login" class="glass">
-    <h2>Welcome to Eagles Nest</h2>
+    <h2>Welcome to Milliway</h2>
     <p>Enter a username to join the chat</p>
     <input id="usernameInput" placeholder="Your username" maxlength="20" />
     <input id="trackingInput" placeholder="Tracking # (optional)" maxlength="40" />
@@ -471,7 +453,7 @@
 
   <div id="chat" class="glass">
     <h2>
-      Eagles Nest Chat
+      Milliway
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
     </h2>
     <div id="messages"></div>
@@ -481,7 +463,6 @@
     </form>
   </div>
 
-  <div id="sideCol">
   <aside id="liveCard" class="glass">
     <div class="live-head">
       <h3>Nest Stream</h3>
@@ -504,18 +485,6 @@
       </div>
     </div>
   </aside>
-
-  <aside id="worldCard" class="glass">
-    <div class="live-head">
-      <h3>Open World</h3>
-    </div>
-    <p class="world-blurb">Walk the Nest courtyard with other members. Same pass as /nest.</p>
-    <div class="live-status" id="worldStatus">Registered members only.</div>
-    <div class="live-actions">
-      <button class="btn-live" id="enterWorldBtn" type="button">Enter</button>
-    </div>
-  </aside>
-  </div>
 
     <div id="privPane" class="glass">
     <div id="privLog"></div>
@@ -841,41 +810,6 @@
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
     });
-
-    (function () {
-      var enterBtn = document.getElementById('enterWorldBtn');
-      var worldStatus = document.getElementById('worldStatus');
-      if (!enterBtn || !worldStatus) return;
-
-      function setWorldStatus(text, kind) {
-        worldStatus.textContent = text;
-        worldStatus.className = 'live-status' + (kind ? ' ' + kind : '');
-      }
-
-      enterBtn.addEventListener('click', function () {
-        setWorldStatus('Requesting Nest World pass…');
-        enterBtn.disabled = true;
-        socket.emit('world:enter');
-      });
-
-      socket.on('world:pass', function (data) {
-        enterBtn.disabled = false;
-        var url = data && data.url;
-        if (!url) {
-          setWorldStatus('Pass missing. Try again.', 'err');
-          return;
-        }
-        setWorldStatus('Pass ready — opening Nest World…', 'ok');
-        window.open(url, '_blank', 'noopener,noreferrer');
-      });
-
-      socket.on('world:error', function (data) {
-        enterBtn.disabled = false;
-        var msg = (data && data.message) || 'Could not enter Nest World.';
-        setWorldStatus(msg, 'err');
-      });
-    })();
-
   </script>
 </body>
 </html>
