@@ -276,6 +276,38 @@
 
     #worldCard .live-head { margin-bottom: 8px; }
 
+    /* CHG-036 — Who's here presence card */
+    #whoCard { display: block; padding: 12px; position: static; }
+    #whoCard .live-head { margin-bottom: 6px; }
+    #whoCount { font-size: 0.75rem; color: #a0aec0; }
+    #whoList { list-style: none; margin: 0; padding: 0 4px; display: grid; gap: 4px; }
+    #whoList li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      min-width: 0;
+    }
+    #whoList .who-dot {
+      flex: 0 0 auto;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #48bb78;
+      animation: livePulse 2s ease-in-out infinite;
+    }
+    #whoList .who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #whoList .who-you {
+      flex: 0 0 auto;
+      font-size: 0.65rem;
+      color: #a0aec0;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 999px;
+      padding: 0 6px;
+    }
+    #whoList .who-more { color: #a0aec0; font-size: 0.8rem; padding-left: 16px; }
+    #whoEmpty { margin-bottom: 4px; }
+
     #worldCard .world-blurb {
       font-size: 0.8rem;
       line-height: 1.4;
@@ -482,6 +514,15 @@
   </div>
 
   <div id="sideCol">
+  <aside id="whoCard" class="glass">
+    <div class="live-head">
+      <h3>Who’s here</h3>
+      <span id="whoCount">0 online</span>
+    </div>
+    <ul id="whoList"></ul>
+    <div class="live-status" id="whoEmpty">No one else is here yet.</div>
+  </aside>
+
   <aside id="liveCard" class="glass">
     <div class="live-head">
       <h3>Nest Stream</h3>
@@ -841,6 +882,96 @@
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
     });
+
+    // CHG-036 — Who's here: server-authoritative presence roster
+    (function () {
+      var WHO_CAP = 12;
+      var whoList = document.getElementById('whoList');
+      var whoCount = document.getElementById('whoCount');
+      var whoEmpty = document.getElementById('whoEmpty');
+      if (!whoList || !whoCount || !whoEmpty) return;
+      var roster = new Map();
+
+      function guestNum(name) {
+        var m = /^guest-user (\d+)$/i.exec(name || '');
+        return m ? Number(m[1]) : null;
+      }
+
+      function compareUsers(a, b) {
+        if (a.id === socket.id) return -1;
+        if (b.id === socket.id) return 1;
+        var ga = guestNum(a.name), gb = guestNum(b.name);
+        if (ga === null && gb === null) {
+          return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }) ||
+            String(a.id).localeCompare(String(b.id));
+        }
+        if (ga === null) return -1;
+        if (gb === null) return 1;
+        return (ga - gb) || String(a.id).localeCompare(String(b.id));
+      }
+
+      function renderWho() {
+        var users = Array.from(roster.values()).sort(compareUsers);
+        whoCount.textContent = users.length + ' online';
+        whoEmpty.style.display = users.length ? 'none' : '';
+        whoList.textContent = '';
+        users.slice(0, WHO_CAP).forEach(function (u) {
+          var li = document.createElement('li');
+          var dot = document.createElement('span');
+          dot.className = 'who-dot';
+          dot.setAttribute('aria-hidden', 'true');
+          var name = document.createElement('span');
+          name.className = 'who-name';
+          name.textContent = u.name;
+          li.appendChild(dot);
+          li.appendChild(name);
+          if (u.id === socket.id) {
+            var you = document.createElement('span');
+            you.className = 'who-you';
+            you.textContent = 'you';
+            li.appendChild(you);
+          }
+          whoList.appendChild(li);
+        });
+        if (users.length > WHO_CAP) {
+          var more = document.createElement('li');
+          more.className = 'who-more';
+          more.textContent = '+' + (users.length - WHO_CAP) + ' more';
+          whoList.appendChild(more);
+        }
+      }
+
+      function putUser(u) {
+        if (!u || !u.id) return;
+        roster.set(u.id, { id: String(u.id), name: String(u.name || '') });
+      }
+
+      socket.on('presence:sync', function (data) {
+        roster.clear();
+        ((data && data.users) || []).forEach(putUser);
+        renderWho();
+      });
+
+      socket.on('presence:join', function (data) {
+        putUser(data && data.user);
+        renderWho();
+      });
+
+      socket.on('presence:update', function (data) {
+        putUser(data && data.user);
+        renderWho();
+      });
+
+      socket.on('presence:leave', function (data) {
+        if (data && data.id) roster.delete(data.id);
+        renderWho();
+      });
+
+      socket.on('disconnect', function () {
+        roster.clear();
+        renderWho();
+      });
+    })();
 
     (function () {
       var enterBtn = document.getElementById('enterWorldBtn');

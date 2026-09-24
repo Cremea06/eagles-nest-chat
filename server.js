@@ -632,6 +632,22 @@ function isGuestName(name) {
   return /^guest-user \d+$/i.test(String(name || ''));
 }
 
+// CHG-036 — Milliway presence roster (default namespace only; one entry per joined socket)
+/** @type {Map<string, { id: string, name: string, guest: boolean }>} socket.id -> presence user */
+const milliwayPresence = new Map();
+
+function presenceUser(socket) {
+  return { id: socket.id, name: String(socket.username || ''), guest: !!socket.isGuest };
+}
+
+function presenceSync(socket) {
+  const users = [];
+  for (const u of milliwayPresence.values()) {
+    users.push(Object.assign({}, u, { you: u.id === socket.id }));
+  }
+  socket.emit('presence:sync', { users, ts: Date.now() });
+}
+
 io.on('connection', (socket) => {
   console.log('A user connected');
   clearReg(socket);
@@ -677,6 +693,13 @@ io.on('connection', (socket) => {
       currentLive.push({ socketId: id, username: info.username, kind: info.kind });
     }
     if (currentLive.length) socket.emit('live-state', currentLive);
+
+    // CHG-036 — presence: add/update this socket, tell others, full sync to this socket
+    const wasPresent = milliwayPresence.has(socket.id);
+    const pUser = presenceUser(socket);
+    milliwayPresence.set(socket.id, pUser);
+    socket.broadcast.emit(wasPresent ? 'presence:update' : 'presence:join', { user: pUser });
+    presenceSync(socket);
   });
 
   socket.on('priv:open', (data = {}) => {
@@ -800,6 +823,13 @@ io.on('connection', (socket) => {
     socket.emit('system', 'Complete.');
     socket.broadcast.emit('system', `${socket.username} has joined the chat`);
     console.log('[auth ok]', oldName, '->', socket.username);
+
+    // CHG-036 — presence: name change
+    if (milliwayPresence.has(socket.id)) {
+      const pUser = presenceUser(socket);
+      milliwayPresence.set(socket.id, pUser);
+      io.emit('presence:update', { user: pUser });
+    }
   });
 
   socket.on('chat message', async (msg) => {
@@ -914,6 +944,10 @@ io.on('connection', (socket) => {
     }
     if (socket.username) {
       socket.broadcast.emit('system', socket.username + ' left the chat');
+    }
+    // CHG-036 — presence: remove this socket
+    if (milliwayPresence.delete(socket.id)) {
+      socket.broadcast.emit('presence:leave', { id: socket.id });
     }
   });
 });
