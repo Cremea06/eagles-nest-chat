@@ -1,20 +1,20 @@
-require('dotenv').config();
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
-const nodemailer = require('nodemailer');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
+require("dotenv").config();
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
+const nodemailer = require("nodemailer");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 // CHG-003 Slice 1 — Nest World /nest mint (no world page yet; do not increment nestCount)
-let nestCount = process.env.NEST_SIMULATE_FULL === '1' ? 32 : 0;
+let nestCount = process.env.NEST_SIMULATE_FULL === "1" ? 32 : 0;
 const NEST_CAP = 32;
 /** @type {Map<string, { exp: number, jti: string }>} handle -> active mint */
 const nestMints = new Map();
@@ -33,40 +33,42 @@ function purgeExpiredNestMints() {
 }
 
 function isRegisteredAuthed(socket) {
-  return socket.authState === 'authed' && !socket.isGuest;
+  return socket.authState === "authed" && !socket.isGuest;
 }
 
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
-app.use(cors({
-  origin: [
-    'https://afirstflag.com',
-    'https://www.afirstflag.com',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:5500',
-    'http://127.0.0.1:5500',
-    'http://localhost:8765',
-    'http://127.0.0.1:8765'
-  ],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type'],
-  credentials: false
-}));
+app.use(
+  cors({
+    origin: [
+      "https://afirstflag.com",
+      "https://www.afirstflag.com",
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://localhost:5500",
+      "http://127.0.0.1:5500",
+      "http://localhost:8765",
+      "http://127.0.0.1:8765",
+    ],
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
+    credentials: false,
+  }),
+);
 
 app.use(express.json());
 
-app.get(['/world', '/world/'], (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'world', 'index.html'));
+app.get(["/world", "/world/"], (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "world", "index.html"));
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, "public")));
 
 const usageStats = {
   calls: 0,
   prompt: 0,
   completion: 0,
-  total: 0
+  total: 0,
 };
 
 function usagePayload() {
@@ -74,7 +76,7 @@ function usagePayload() {
     calls: usageStats.calls,
     tokens: usageStats.total,
     prompt: usageStats.prompt,
-    completion: usageStats.completion
+    completion: usageStats.completion,
   };
 }
 
@@ -83,18 +85,21 @@ const liveBroadcasters = new Map();
 
 let flagholders = [];
 try {
-  const data = fs.readFileSync(path.join(__dirname, 'flagholders.json'), 'utf8');
+  const data = fs.readFileSync(
+    path.join(__dirname, "flagholders.json"),
+    "utf8",
+  );
   flagholders = JSON.parse(data);
   console.log(`Loaded ${flagholders.length} flagholder tracking numbers`);
 } catch (err) {
-  console.error('Could not load flagholders.json:', err.message);
+  console.error("Could not load flagholders.json:", err.message);
 }
 
-const USERS_PATH = path.join(__dirname, 'users.json');
+const USERS_PATH = path.join(__dirname, "users.json");
 
 function loadUsers() {
   try {
-    return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
+    return JSON.parse(fs.readFileSync(USERS_PATH, "utf8"));
   } catch {
     return [];
   }
@@ -108,19 +113,19 @@ let registeredUsers = loadUsers();
 console.log(`Loaded ${registeredUsers.length} registered users`);
 
 function findUserByName(username) {
-  const key = String(username || '').toLowerCase();
-  return registeredUsers.find(u => String(u.username).toLowerCase() === key);
+  const key = String(username || "").toLowerCase();
+  return registeredUsers.find((u) => String(u.username).toLowerCase() === key);
 }
 
 function findUserByEmail(email) {
-  const key = String(email || '').toLowerCase();
-  return registeredUsers.find(u => String(u.email).toLowerCase() === key);
+  const key = String(email || "").toLowerCase();
+  return registeredUsers.find((u) => String(u.email).toLowerCase() === key);
 }
 
 function maskEmail(email) {
-  const [name, domain] = String(email).split('@');
-  if (!domain) return '***';
-  return name.slice(0, 1) + '***@' + domain;
+  const [name, domain] = String(email).split("@");
+  if (!domain) return "***";
+  return name.slice(0, 1) + "***@" + domain;
 }
 
 function isValidEmail(email) {
@@ -128,13 +133,15 @@ function isValidEmail(email) {
 }
 
 function clearReg(socket) {
-  socket.reg = { step: 'idle', email: null, startedAt: 0 };
+  socket.reg = { step: "idle", email: null, startedAt: 0 };
 }
 
 function regExpired(socket) {
-  return socket.reg &&
-    socket.reg.step !== 'idle' &&
-    Date.now() - socket.reg.startedAt > 3 * 60 * 1000;
+  return (
+    socket.reg &&
+    socket.reg.step !== "idle" &&
+    Date.now() - socket.reg.startedAt > 3 * 60 * 1000
+  );
 }
 
 function handleCommand(socket, msg) {
@@ -142,206 +149,249 @@ function handleCommand(socket, msg) {
   const command = parts[0].toLowerCase();
   const args = parts.slice(1);
 
-  const username = socket.username || 'Anonymous';
-  const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+  const username = socket.username || "Anonymous";
+  const displayName = socket.isFlagholder
+    ? `${username} (flagholder)`
+    : username;
 
-  if (command === '/help' || command === '/?') {
+  if (command === "/help" || command === "/?") {
     const helpText = [
-      'Available commands:',
-      '/help or /?          - Show this help',
-      '/me <action>         - Perform an action (e.g. /me waves)',
-      '/who                 - Show who is online',
-      '/login               - Sign in with email',
-      '/register            - Create a username and email',
-      '/whoami              - Your account status',
-      '/mute <username>     - Mute a user (temporary)',
-      '/nest                - Mint a Nest World pass (registered members)'
-    ].join('\n');
-    socket.emit('system', helpText);
+      "Available commands:",
+      "/help or /?          - Show this help",
+      "/me <action>         - Perform an action (e.g. /me waves)",
+      "/who                 - Show who is online",
+      "/login               - Sign in with email",
+      "/register            - Create a username and email",
+      "/whoami              - Your account status",
+      "/mute <username>     - Mute a user (temporary)",
+      "/nest                - Mint a Nest World pass (registered members)",
+      "/shrug               - Shrug",
+    ].join("\n");
+    socket.emit("system", helpText);
     return true;
   }
 
-  if (command === '/me') {
-    const action = args.join(' ');
+  if (command === "/me") {
+    const action = args.join(" ");
     if (!action) {
-      socket.emit('system', 'Usage: /me <action>');
+      socket.emit("system", "Usage: /me <action>");
       return true;
     }
-    io.emit('system', `* ${displayName} ${action}`);
+    io.emit("system", `* ${displayName} ${action}`);
     return true;
   }
 
-  if (command === '/who') {
+  if (command === "/shrug") {
+    socket.emit("system", "¯\\_(ツ)_/¯");
+    return true;
+  }
+
+  if (command === "/who") {
     const users = [];
-    for (const [, s] of io.of('/').sockets) {
+    for (const [, s] of io.of("/").sockets) {
       if (s.username) {
         const name = s.isFlagholder ? `${s.username} (flagholder)` : s.username;
         users.push(name);
       }
     }
-    const list = users.length > 0 ? users.join(', ') : 'No one else is here.';
-    socket.emit('system', `Currently online: ${list}`);
+    const list = users.length > 0 ? users.join(", ") : "No one else is here.";
+    socket.emit("system", `Currently online: ${list}`);
     return true;
   }
 
-  if (command === '/register' || command === '/login') {
-    socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
+  if (command === "/register" || command === "/login") {
+    socket.emit(
+      "system",
+      `Unknown command: ${command}. Type /help for a list.`,
+    );
     return true;
   }
 
-  if (command === '/cancel') {
-    if (!socket.reg || socket.reg.step === 'idle') {
-      socket.emit('system', 'Nothing to cancel.');
+  if (command === "/cancel") {
+    if (!socket.reg || socket.reg.step === "idle") {
+      socket.emit("system", "Nothing to cancel.");
       return true;
     }
     clearReg(socket);
-    socket.emit('system', 'Registration cancelled.');
+    socket.emit("system", "Registration cancelled.");
     return true;
   }
 
-  if (command === '/whoami') {
+  if (command === "/whoami") {
     const existing = findUserByName(socket.username);
     if (!existing) {
-      socket.emit('system', 'Not registered. Type /register');
+      socket.emit("system", "Not registered. Type /register");
       return true;
     }
-    const tag = socket.isFlagholder ? ' · flagholder' : '';
-    socket.emit('system', `You: ${socket.username}${tag} · ${maskEmail(existing.email)}`);
+    const tag = socket.isFlagholder ? " · flagholder" : "";
+    socket.emit(
+      "system",
+      `You: ${socket.username}${tag} · ${maskEmail(existing.email)}`,
+    );
     return true;
   }
 
-  if (command === '/mute') {
+  if (command === "/mute") {
     const target = args[0];
     if (!target) {
-      socket.emit('system', 'Usage: /mute <username>');
+      socket.emit("system", "Usage: /mute <username>");
       return true;
     }
     let targetSocket = null;
-    for (const [, s] of io.of('/').sockets) {
+    for (const [, s] of io.of("/").sockets) {
       if (s.username && s.username.toLowerCase() === target.toLowerCase()) {
         targetSocket = s;
         break;
       }
     }
     if (!targetSocket) {
-      socket.emit('system', `User "${target}" is not online.`);
+      socket.emit("system", `User "${target}" is not online.`);
       return true;
     }
     targetSocket.mutedUntil = Date.now() + 5 * 60 * 1000;
-    socket.emit('system', `You muted ${target} for 5 minutes.`);
-    targetSocket.emit('system', `You have been muted for 5 minutes by ${displayName}.`);
+    socket.emit("system", `You muted ${target} for 5 minutes.`);
+    targetSocket.emit(
+      "system",
+      `You have been muted for 5 minutes by ${displayName}.`,
+    );
     return true;
   }
 
-  if (command === '/nest') {
+  if (command === "/nest") {
     purgeExpiredNestMints();
 
     if (nestCount >= NEST_CAP) {
-      socket.emit('system', 'The Nest World is full right now (32). Try again later.');
+      socket.emit(
+        "system",
+        "The Nest World is full right now (32). Try again later.",
+      );
       return true;
     }
 
     if (!isRegisteredAuthed(socket)) {
-      socket.emit('system', 'Only registered members can enter Nest World. Type /register or /login first.');
+      socket.emit(
+        "system",
+        "Only registered members can enter Nest World. Type /register or /login first.",
+      );
       return true;
     }
 
-    const handle = String(socket.username || '').trim();
+    const handle = String(socket.username || "").trim();
     if (!handle) {
-      socket.emit('system', 'Only registered members can enter Nest World. Type /register or /login first.');
+      socket.emit(
+        "system",
+        "Only registered members can enter Nest World. Type /register or /login first.",
+      );
       return true;
     }
 
     const existing = nestMints.get(handle.toLowerCase());
     if (existing && existing.exp > Date.now()) {
-      socket.emit('system', 'You already have an active Nest World pass. Open that link or wait for it to expire (~2 min).');
+      socket.emit(
+        "system",
+        "You already have an active Nest World pass. Open that link or wait for it to expire (~2 min).",
+      );
       return true;
     }
 
     const secret = process.env.WORLD_TOKEN_SECRET;
     if (!secret) {
-      console.error('[nest] WORLD_TOKEN_SECRET is not set');
-      socket.emit('system', 'Nest World is not configured yet. Try again later.');
+      console.error("[nest] WORLD_TOKEN_SECRET is not set");
+      socket.emit(
+        "system",
+        "Nest World is not configured yet. Try again later.",
+      );
       return true;
     }
 
     const jti = crypto.randomUUID();
-    const nonce = crypto.randomBytes(16).toString('hex');
+    const nonce = crypto.randomBytes(16).toString("hex");
     const token = jwt.sign(
       {
         sub: handle,
         sid: socket.id,
         jti,
-        nonce
+        nonce,
       },
       secret,
-      { expiresIn: 120 }
+      { expiresIn: 120 },
     );
 
     // Track active mint — do NOT increment nestCount in Slice 1
     nestMints.set(handle.toLowerCase(), {
       exp: Date.now() + 120000,
-      jti
+      jti,
     });
 
-    const url = 'https://chat.afirstflag.com/world?token=' + encodeURIComponent(token);
-    socket.emit('system', 'Nest World pass minted (single-use, expires in ~2 minutes). Enter: ' + url);
+    const url =
+      "https://chat.afirstflag.com/world?token=" + encodeURIComponent(token);
+    socket.emit(
+      "system",
+      "Nest World pass minted (single-use, expires in ~2 minutes). Enter: " +
+        url,
+    );
     return true;
   }
 
-  socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
+  socket.emit("system", `Unknown command: ${command}. Type /help for a list.`);
   return true;
 }
 
 function handleRegistrationInput(socket, text) {
-  const username = socket.username || 'Anonymous';
+  const username = socket.username || "Anonymous";
 
-  if (socket.reg.step === 'awaiting_email') {
+  if (socket.reg.step === "awaiting_email") {
     const email = text.toLowerCase();
     if (!isValidEmail(email)) {
-      socket.emit('system', 'That does not look like an email. Try again or /cancel.');
+      socket.emit(
+        "system",
+        "That does not look like an email. Try again or /cancel.",
+      );
       return true;
     }
     if (findUserByEmail(email)) {
-      socket.emit('system', 'That email is already on an account. Try another or /cancel.');
+      socket.emit(
+        "system",
+        "That email is already on an account. Try another or /cancel.",
+      );
       return true;
     }
     socket.reg.email = email;
-    socket.reg.step = 'awaiting_confirm';
+    socket.reg.step = "awaiting_confirm";
     socket.reg.startedAt = Date.now();
-    socket.emit('system', `Use ${email}? Type yes or no.`);
+    socket.emit("system", `Use ${email}? Type yes or no.`);
     return true;
   }
 
-  if (socket.reg.step === 'awaiting_confirm') {
+  if (socket.reg.step === "awaiting_confirm") {
     const answer = text.toLowerCase();
-    if (answer === 'yes' || answer === 'y') {
+    if (answer === "yes" || answer === "y") {
       if (findUserByEmail(socket.reg.email) || findUserByName(username)) {
         clearReg(socket);
-        socket.emit('system', 'That account already exists.');
+        socket.emit("system", "That account already exists.");
         return true;
       }
       registeredUsers.push({
         username,
         email: socket.reg.email,
         createdAt: new Date().toISOString(),
-        flagholder: !!socket.isFlagholder
+        flagholder: !!socket.isFlagholder,
       });
       saveUsers(registeredUsers);
       const saved = socket.reg.email;
       clearReg(socket);
-      socket.emit('system', `Saved ${maskEmail(saved)}. You are registered.`);
-      socket.broadcast.emit('system', `${username} registered.`);
+      socket.emit("system", `Saved ${maskEmail(saved)}. You are registered.`);
+      socket.broadcast.emit("system", `${username} registered.`);
       return true;
     }
-    if (answer === 'no' || answer === 'n') {
-      socket.reg.step = 'awaiting_email';
+    if (answer === "no" || answer === "n") {
+      socket.reg.step = "awaiting_email";
       socket.reg.email = null;
       socket.reg.startedAt = Date.now();
-      socket.emit('system', 'Okay. Type a different email or /cancel.');
+      socket.emit("system", "Okay. Type a different email or /cancel.");
       return true;
     }
-    socket.emit('system', 'Type yes, no, or /cancel.');
+    socket.emit("system", "Type yes, no, or /cancel.");
     return true;
   }
 
@@ -357,11 +407,11 @@ setInterval(() => {
   }
 }, 30000);
 
-app.get('/api/online', (req, res) => {
+app.get("/api/online", (req, res) => {
   res.json({ online: activeVisitors.size });
 });
 
-app.post('/api/heartbeat', (req, res) => {
+app.post("/api/heartbeat", (req, res) => {
   const { visitorId } = req.body || {};
   if (visitorId) {
     activeVisitors.set(visitorId, Date.now());
@@ -369,26 +419,25 @@ app.post('/api/heartbeat', (req, res) => {
   res.json({ success: true });
 });
 
-
 // CHG-002 — Bitcoin address lookup (mainnet 1…/3…/bc1q…/bc1p… → Mempool.space; no allowlist)
 const btcLookupRate = new Map(); // ip -> { count, windowStart }
 
 function getClientIp(req) {
-  const xf = req.headers['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.trim()) {
-    return xf.split(',')[0].trim();
+  const xf = req.headers["x-forwarded-for"];
+  if (typeof xf === "string" && xf.trim()) {
+    return xf.split(",")[0].trim();
   }
-  return req.ip || (req.socket && req.socket.remoteAddress) || 'unknown';
+  return req.ip || (req.socket && req.socket.remoteAddress) || "unknown";
 }
 
 function truncateForLog(value) {
-  const s = String(value || '');
-  if (!s) return '';
-  return s.slice(0, 8) + (s.length > 8 ? '…' : '');
+  const s = String(value || "");
+  if (!s) return "";
+  return s.slice(0, 8) + (s.length > 8 ? "…" : "");
 }
 
 function looksLikePrivateKeyMaterial(raw) {
-  const s = String(raw || '').trim();
+  const s = String(raw || "").trim();
   if (!s) return false;
 
   const words = s.split(/\s+/).filter(Boolean);
@@ -396,11 +445,16 @@ function looksLikePrivateKeyMaterial(raw) {
     return true;
   }
 
-  if (/^xprv/i.test(s) || /^yprv/i.test(s) || /^zprv/i.test(s) || /^tprv/i.test(s)) {
+  if (
+    /^xprv/i.test(s) ||
+    /^yprv/i.test(s) ||
+    /^zprv/i.test(s) ||
+    /^tprv/i.test(s)
+  ) {
     return true;
   }
 
-  const hex = s.replace(/^0x/i, '');
+  const hex = s.replace(/^0x/i, "");
   if (/^[0-9a-fA-F]{64}$/.test(hex)) {
     return true;
   }
@@ -412,12 +466,11 @@ function looksLikePrivateKeyMaterial(raw) {
   return false;
 }
 
-
 function isBitcoinMainnetAddress(raw) {
-  const s = String(raw || '').trim();
+  const s = String(raw || "").trim();
   if (!s) return false;
   // Single token only — no spaces, commas, or multi-line pastes
-  if (/\s/.test(s) || s.includes(',') || s.includes(';')) return false;
+  if (/\s/.test(s) || s.includes(",") || s.includes(";")) return false;
 
   // Reject testnet, regtest, Liquid / Elements-style prefixes
   if (/^(tb1|bcrt1|lq1|ert1|tex1|ex1)/i.test(s)) return false;
@@ -427,7 +480,8 @@ function isBitcoinMainnetAddress(raw) {
     if (s !== s.toLowerCase() && s !== s.toUpperCase()) return false;
     const lower = s.toLowerCase();
     // charset: qpzry9x8gf2tvdw0s3jn54khce6mua7l
-    if (!/^bc1[qp][qpzry9x8gf2tvdw0s3jn54khce6mua7l]{6,87}$/.test(lower)) return false;
+    if (!/^bc1[qp][qpzry9x8gf2tvdw0s3jn54khce6mua7l]{6,87}$/.test(lower))
+      return false;
     if (lower.length < 14 || lower.length > 90) return false;
     return true;
   }
@@ -442,7 +496,7 @@ function isBitcoinMainnetAddress(raw) {
 }
 
 function normalizeBitcoinAddress(raw) {
-  const s = String(raw || '').trim();
+  const s = String(raw || "").trim();
   if (/^bc1/i.test(s)) return s.toLowerCase();
   return s; // Base58 is case-sensitive
 }
@@ -452,7 +506,7 @@ function satsToBtc(sats) {
   return n / 1e8;
 }
 
-app.post('/api/flag-wallet-lookup', async (req, res) => {
+app.post("/api/flag-wallet-lookup", async (req, res) => {
   const ip = getClientIp(req);
   const now = Date.now();
   let bucket = btcLookupRate.get(ip);
@@ -463,54 +517,67 @@ app.post('/api/flag-wallet-lookup', async (req, res) => {
   bucket.count += 1;
   if (bucket.count > 20) {
     return res.status(429).json({
-      error: 'rate_limit',
-      message: 'Too many lookups. Wait a bit and try again.'
+      error: "rate_limit",
+      message: "Too many lookups. Wait a bit and try again.",
     });
   }
 
   const body = req.body || {};
   const rawInput = body.address != null ? body.address : body.q;
-  const addressRaw = typeof rawInput === 'string' ? rawInput.trim() : '';
+  const addressRaw = typeof rawInput === "string" ? rawInput.trim() : "";
 
   if (!addressRaw) {
     return res.status(400).json({
-      error: 'empty',
-      message: 'Paste a public Bitcoin address.'
+      error: "empty",
+      message: "Paste a public Bitcoin address.",
     });
   }
 
   if (looksLikePrivateKeyMaterial(addressRaw)) {
-    console.warn('btc-lookup rejected private-key-like input prefix=%s ip=%s', truncateForLog(addressRaw), ip);
+    console.warn(
+      "btc-lookup rejected private-key-like input prefix=%s ip=%s",
+      truncateForLog(addressRaw),
+      ip,
+    );
     return res.status(400).json({
-      error: 'private_key',
-      message: 'Never paste private keys. Public address only.'
+      error: "private_key",
+      message: "Never paste private keys. Public address only.",
     });
   }
 
   if (!isBitcoinMainnetAddress(addressRaw)) {
     return res.status(400).json({
-      error: 'not_btc',
-      message: "That doesn't look like a Bitcoin address."
+      error: "not_btc",
+      message: "That doesn't look like a Bitcoin address.",
     });
   }
 
   const addr = normalizeBitcoinAddress(addressRaw);
-  const mempoolApi = 'https://mempool.space/api/address/' + encodeURIComponent(addr);
+  const mempoolApi =
+    "https://mempool.space/api/address/" + encodeURIComponent(addr);
   const controller = new AbortController();
-  const timer = setTimeout(function () { controller.abort(); }, 8000);
+  const timer = setTimeout(function () {
+    controller.abort();
+  }, 8000);
 
   try {
     const explorerRes = await fetch(mempoolApi, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      signal: controller.signal
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
     });
 
     if (!explorerRes.ok) {
-      console.error('mempool.space status', explorerRes.status, 'for', truncateForLog(addr));
+      console.error(
+        "mempool.space status",
+        explorerRes.status,
+        "for",
+        truncateForLog(addr),
+      );
       return res.status(502).json({
-        error: 'explorer',
-        message: "Couldn't reach the blockchain explorer. Try again in a minute."
+        error: "explorer",
+        message:
+          "Couldn't reach the blockchain explorer. Try again in a minute.",
       });
     }
 
@@ -527,7 +594,7 @@ app.post('/api/flag-wallet-lookup', async (req, res) => {
       received_btc: satsToBtc(funded),
       spent_btc: satsToBtc(spent),
       tx_count: Number(chain.tx_count) || 0,
-      mempool_url: 'https://mempool.space/address/' + addr
+      mempool_url: "https://mempool.space/address/" + addr,
     };
 
     if (mem && (mem.funded_txo_sum != null || mem.spent_txo_sum != null)) {
@@ -537,16 +604,19 @@ app.post('/api/flag-wallet-lookup', async (req, res) => {
 
     return res.json(payload);
   } catch (err) {
-    console.error('btc-lookup explorer fail:', err && err.name, err && err.message);
+    console.error(
+      "btc-lookup explorer fail:",
+      err && err.name,
+      err && err.message,
+    );
     return res.status(502).json({
-      error: 'explorer',
-      message: "Couldn't reach the blockchain explorer. Try again in a minute."
+      error: "explorer",
+      message: "Couldn't reach the blockchain explorer. Try again in a minute.",
     });
   } finally {
     clearTimeout(timer);
   }
 });
-
 
 const NEAGLE_SYSTEM_PROMPT = `You are Neagle, house presence in Milliway, a small public chat attached to America First Flags.
 
@@ -562,65 +632,72 @@ Address them by the name you are given. Do not invent lore.`;
 
 async function askNeagle(userMessage, username) {
   if (!XAI_API_KEY) {
-    return 'The human forgot to give me my API key. Typical.';
+    return "The human forgot to give me my API key. Typical.";
   }
 
   try {
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
+    const response = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${XAI_API_KEY}`
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${XAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'grok-3',
+        model: "grok-3",
         messages: [
-          { role: 'system', content: NEAGLE_SYSTEM_PROMPT },
-          { role: 'user', content: `${username} said: ${userMessage}` }
+          { role: "system", content: NEAGLE_SYSTEM_PROMPT },
+          { role: "user", content: `${username} said: ${userMessage}` },
         ],
         temperature: 0.8,
-        max_tokens: 150
-      })
+        max_tokens: 150,
+      }),
     });
 
     const data = await response.json();
     const usage = data.usage || {};
     const prompt = usage.prompt_tokens || 0;
     const completion = usage.completion_tokens || 0;
-    const total = usage.total_tokens || (prompt + completion);
+    const total = usage.total_tokens || prompt + completion;
 
     usageStats.calls += 1;
     usageStats.prompt += prompt;
     usageStats.completion += completion;
     usageStats.total += total;
 
-    io.emit('usage', usagePayload());
-    return data.choices?.[0]?.message?.content?.trim() || 'I have nothing to say right now.';
+    io.emit("usage", usagePayload());
+    return (
+      data.choices?.[0]?.message?.content?.trim() ||
+      "I have nothing to say right now."
+    );
   } catch (err) {
-    console.error('Neagle API error:', err);
-    return 'Something went wrong in my brain. Try again later.';
+    console.error("Neagle API error:", err);
+    return "Something went wrong in my brain. Try again later.";
   }
 }
 
 const mailer = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT || 465),
-  secure: String(process.env.SMTP_SECURE || 'true') === 'true',
+  secure: String(process.env.SMTP_SECURE || "true") === "true",
   auth: {
     user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  }
+    pass: process.env.SMTP_PASS,
+  },
 });
 
 async function sendAuthEmail(to, code) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    throw new Error('SMTP env missing');
+    throw new Error("SMTP env missing");
   }
   await mailer.sendMail({
     from: process.env.MAIL_FROM || process.env.SMTP_USER,
     to,
-    subject: 'Milliway sign-in code',
-    text: 'Your code is ' + code + '. It expires in 10 minutes. In chat type /auth ' + code
+    subject: "Milliway sign-in code",
+    text:
+      "Your code is " +
+      code +
+      ". It expires in 10 minutes. In chat type /auth " +
+      code,
   });
 }
 
@@ -629,7 +706,7 @@ function makeAuthCode() {
 }
 
 function isGuestName(name) {
-  return /^guest-user \d+$/i.test(String(name || ''));
+  return /^guest-user \d+$/i.test(String(name || ""));
 }
 
 // CHG-036 — Milliway presence roster (default namespace only; one entry per joined socket)
@@ -637,7 +714,11 @@ function isGuestName(name) {
 const milliwayPresence = new Map();
 
 function presenceUser(socket) {
-  return { id: socket.id, name: String(socket.username || ''), guest: !!socket.isGuest };
+  return {
+    id: socket.id,
+    name: String(socket.username || ""),
+    guest: !!socket.isGuest,
+  };
 }
 
 function presenceSync(socket) {
@@ -645,33 +726,33 @@ function presenceSync(socket) {
   for (const u of milliwayPresence.values()) {
     users.push(Object.assign({}, u, { you: u.id === socket.id }));
   }
-  socket.emit('presence:sync', { users, ts: Date.now() });
+  socket.emit("presence:sync", { users, ts: Date.now() });
 }
 
-io.on('connection', (socket) => {
-  console.log('A user connected');
+io.on("connection", (socket) => {
+  console.log("A user connected");
   clearReg(socket);
 
-  socket.on('join', (data) => {
-    let username = '';
-    let tracking = '';
+  socket.on("join", (data) => {
+    let username = "";
+    let tracking = "";
 
-    if (typeof data === 'string') {
+    if (typeof data === "string") {
       username = data;
-    } else if (data && typeof data === 'object') {
-      username = (data.username || '').trim();
-      tracking = (data.tracking || '').trim();
+    } else if (data && typeof data === "object") {
+      username = (data.username || "").trim();
+      tracking = (data.tracking || "").trim();
     }
 
     if (!username) {
       const taken = new Set();
-      for (const [, s] of io.of('/').sockets) {
+      for (const [, s] of io.of("/").sockets) {
         if (s.username) taken.add(s.username.toLowerCase());
       }
       let n;
       do {
         n = Math.floor(1000 + Math.random() * 9000);
-        username = 'Guest-User ' + n;
+        username = "Guest-User " + n;
       } while (taken.has(username.toLowerCase()));
     }
 
@@ -684,38 +765,53 @@ io.on('connection', (socket) => {
 
     const displayName = isFlagholder ? `${username} (flagholder)` : username;
 
-    socket.emit('joined', { username });
-    socket.broadcast.emit('system', `${displayName} joined the chat`);
-    socket.emit('system', `Welcome to Milliway, ${displayName}! Type /help for commands.`);
-    socket.emit('usage', usagePayload());
+    socket.emit("joined", { username });
+    socket.broadcast.emit("system", `${displayName} joined the chat`);
+    socket.emit(
+      "system",
+      `Welcome to Milliway, ${displayName}! Type /help for commands.`,
+    );
+    socket.emit("usage", usagePayload());
     const currentLive = [];
     for (const [id, info] of liveBroadcasters) {
-      currentLive.push({ socketId: id, username: info.username, kind: info.kind });
+      currentLive.push({
+        socketId: id,
+        username: info.username,
+        kind: info.kind,
+      });
     }
-    if (currentLive.length) socket.emit('live-state', currentLive);
+    if (currentLive.length) socket.emit("live-state", currentLive);
 
     // CHG-036 — presence: add/update this socket, tell others, full sync to this socket
     const wasPresent = milliwayPresence.has(socket.id);
     const pUser = presenceUser(socket);
     milliwayPresence.set(socket.id, pUser);
-    socket.broadcast.emit(wasPresent ? 'presence:update' : 'presence:join', { user: pUser });
+    socket.broadcast.emit(wasPresent ? "presence:update" : "presence:join", {
+      user: pUser,
+    });
     presenceSync(socket);
   });
 
-  socket.on('priv:open', (data = {}) => {
-    const kind = data.kind === 'register' ? 'register' : 'login';
-    socket.priv = { kind, step: kind === 'register' ? 'username' : 'email', username: '', email: '' };
-    const intro = kind === 'register'
-      ? 'Register. Enter a userName.'
-      : 'Login. Enter your email.';
-    socket.emit('priv:line', { from: 'SERVER', text: intro });
+  socket.on("priv:open", (data = {}) => {
+    const kind = data.kind === "register" ? "register" : "login";
+    socket.priv = {
+      kind,
+      step: kind === "register" ? "username" : "email",
+      username: "",
+      email: "",
+    };
+    const intro =
+      kind === "register"
+        ? "Register. Enter a userName."
+        : "Login. Enter your email.";
+    socket.emit("priv:line", { from: "SERVER", text: intro });
   });
 
-  socket.on('priv:line', async (data = {}) => {
-    const text = String(data.text || '').trim();
+  socket.on("priv:line", async (data = {}) => {
+    const text = String(data.text || "").trim();
     if (!socket.priv || !text) return;
 
-    if (socket.priv.kind === 'login') {
+    if (socket.priv.kind === "login") {
       const email = text.toLowerCase();
       const existing = isValidEmail(email) && findUserByEmail(email);
       if (existing) {
@@ -725,38 +821,62 @@ io.on('connection', (socket) => {
         saveUsers(registeredUsers);
         socket.pendingEmail = existing.email;
         socket.pendingUsername = existing.username;
-        socket.authState = 'pending';
-        console.log('[auth code] login', existing.email, existing.username, code);
+        socket.authState = "pending";
+        console.log(
+          "[auth code] login",
+          existing.email,
+          existing.username,
+          code,
+        );
         try {
           await sendAuthEmail(existing.email, code);
-          socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
+          socket.emit("priv:result", {
+            ok: true,
+            text: "Complete. Closing in 5 seconds",
+          });
         } catch (err) {
-          console.error('[mail fail]', err.message);
-          socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
+          console.error("[mail fail]", err.message);
+          socket.emit("priv:result", {
+            ok: false,
+            text: "Fail. Closing in 5 seconds",
+          });
         }
       } else {
-        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
+        socket.emit("priv:result", {
+          ok: false,
+          text: "Fail. Closing in 5 seconds",
+        });
       }
       socket.priv = null;
       return;
     }
 
-    if (socket.priv.kind === 'register' && socket.priv.step === 'username') {
+    if (socket.priv.kind === "register" && socket.priv.step === "username") {
       if (text.length < 2 || isGuestName(text) || findUserByName(text)) {
-        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
+        socket.emit("priv:result", {
+          ok: false,
+          text: "Fail. Closing in 5 seconds",
+        });
         socket.priv = null;
         return;
       }
       socket.priv.username = text;
-      socket.priv.step = 'email';
-      socket.emit('priv:line', { from: 'SERVER', text: 'Enter email.' });
+      socket.priv.step = "email";
+      socket.emit("priv:line", { from: "SERVER", text: "Enter email." });
       return;
     }
 
-    if (socket.priv.kind === 'register' && socket.priv.step === 'email') {
+    if (socket.priv.kind === "register" && socket.priv.step === "email") {
       const email = text.toLowerCase();
-      if (!isValidEmail(email) || findUserByEmail(email) || findUserByName(socket.priv.username)) {
-        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
+      if (
+        !isValidEmail(email) ||
+        findUserByEmail(email) ||
+        findUserByName(socket.priv.username)
+      ) {
+        socket.emit("priv:result", {
+          ok: false,
+          text: "Fail. Closing in 5 seconds",
+        });
         socket.priv = null;
         return;
       }
@@ -767,43 +887,57 @@ io.on('connection', (socket) => {
         createdAt: new Date().toISOString(),
         verified: false,
         pendingCode: code,
-        pendingUntil: Date.now() + 10 * 60 * 1000
+        pendingUntil: Date.now() + 10 * 60 * 1000,
       });
       saveUsers(registeredUsers);
       socket.pendingEmail = email;
       socket.pendingUsername = socket.priv.username;
-      socket.authState = 'pending';
-      console.log('[auth code] register', email, socket.priv.username, code);
+      socket.authState = "pending";
+      console.log("[auth code] register", email, socket.priv.username, code);
       try {
         await sendAuthEmail(email, code);
-        socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
+        socket.emit("priv:result", {
+          ok: true,
+          text: "Complete. Closing in 5 seconds",
+        });
       } catch (err) {
-        console.error('[mail fail]', err.message);
-        socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
+        console.error("[mail fail]", err.message);
+        socket.emit("priv:result", {
+          ok: false,
+          text: "Fail. Closing in 5 seconds",
+        });
       }
       socket.priv = null;
     }
   });
 
-  socket.on('auth:try', (data = {}) => {
-    const code = String(data.code || '').trim();
-    const guest = isGuestName(socket.username) && socket.authState !== 'pending';
-    console.log('[auth:try]', code, socket.authState, socket.pendingEmail, socket.username);
+  socket.on("auth:try", (data = {}) => {
+    const code = String(data.code || "").trim();
+    const guest =
+      isGuestName(socket.username) && socket.authState !== "pending";
+    console.log(
+      "[auth:try]",
+      code,
+      socket.authState,
+      socket.pendingEmail,
+      socket.username,
+    );
 
-    if (guest || socket.authState !== 'pending' || !code) {
-      socket.emit('system', 'Unknown command: /auth. Type /help for a list.');
+    if (guest || socket.authState !== "pending" || !code) {
+      socket.emit("system", "Unknown command: /auth. Type /help for a list.");
       return;
     }
 
     const email = socket.pendingEmail;
     const user = findUserByEmail(email);
-    const ok = user &&
+    const ok =
+      user &&
       String(user.pendingCode) === code &&
       user.pendingUntil &&
       Date.now() < user.pendingUntil;
 
     if (!ok) {
-      socket.emit('system', 'Unknown command: /auth. Type /help for a list.');
+      socket.emit("system", "Unknown command: /auth. Type /help for a list.");
       return;
     }
 
@@ -815,33 +949,33 @@ io.on('connection', (socket) => {
     const oldName = socket.username;
     socket.username = user.username;
     socket.isGuest = false;
-    socket.authState = 'authed';
+    socket.authState = "authed";
     socket.pendingEmail = null;
     socket.pendingUsername = null;
 
-    socket.emit('joined', { username: socket.username });
-    socket.emit('system', 'Complete.');
-    socket.broadcast.emit('system', `${socket.username} has joined the chat`);
-    console.log('[auth ok]', oldName, '->', socket.username);
+    socket.emit("joined", { username: socket.username });
+    socket.emit("system", "Complete.");
+    socket.broadcast.emit("system", `${socket.username} has joined the chat`);
+    console.log("[auth ok]", oldName, "->", socket.username);
 
     // CHG-036 — presence: name change
     if (milliwayPresence.has(socket.id)) {
       const pUser = presenceUser(socket);
       milliwayPresence.set(socket.id, pUser);
-      io.emit('presence:update', { user: pUser });
+      io.emit("presence:update", { user: pUser });
     }
   });
 
-  socket.on('chat message', async (msg) => {
-    const username = socket.username || 'Anonymous';
-    const text = String(msg || '').trim();
+  socket.on("chat message", async (msg) => {
+    const username = socket.username || "Anonymous";
+    const text = String(msg || "").trim();
 
     if (!text) return;
 
     if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
       const mutedCmd = text.split(/\s+/)[0].toLowerCase();
-      if (mutedCmd !== '/nest') {
-        socket.emit('system', 'You are currently muted.');
+      if (mutedCmd !== "/nest") {
+        socket.emit("system", "You are currently muted.");
         return;
       }
     }
@@ -850,153 +984,166 @@ io.on('connection', (socket) => {
 
     if (regExpired(socket)) {
       clearReg(socket);
-      socket.emit('system', 'Registration timed out. Type /register to start again.');
+      socket.emit(
+        "system",
+        "Registration timed out. Type /register to start again.",
+      );
     }
 
-    if (text.startsWith('/')) {
+    if (text.startsWith("/")) {
       handleCommand(socket, text);
       return;
     }
 
-    if (socket.reg.step !== 'idle') {
+    if (socket.reg.step !== "idle") {
       handleRegistrationInput(socket, text);
       return;
     }
 
-    const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+    const displayName = socket.isFlagholder
+      ? `${username} (flagholder)`
+      : username;
 
-    io.emit('chat message', {
+    io.emit("chat message", {
       username: displayName,
-      message: msg
+      message: msg,
     });
 
     const lowerMsg = text.toLowerCase();
-    const isMentioned = lowerMsg.includes('@neagle') ||
-                        lowerMsg.includes('neagle') ||
-                        lowerMsg.includes('@cranky') ||
-                        lowerMsg.includes('cranky eagle');
+    const isMentioned =
+      lowerMsg.includes("@neagle") ||
+      lowerMsg.includes("neagle") ||
+      lowerMsg.includes("@cranky") ||
+      lowerMsg.includes("cranky eagle");
 
     const randomJoin = Math.random() < 0.12;
 
     if (isMentioned || randomJoin) {
       const reply = await askNeagle(text, username);
-      setTimeout(() => {
-        io.emit('chat message', {
-          username: 'Neagle',
-          message: reply
-        });
-      }, 800 + Math.random() * 700);
+      setTimeout(
+        () => {
+          io.emit("chat message", {
+            username: "Neagle",
+            message: reply,
+          });
+        },
+        800 + Math.random() * 700,
+      );
     }
   });
 
-  socket.on('go-live', (data = {}) => {
+  socket.on("go-live", (data = {}) => {
     if (!socket.username) return;
     if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
-      socket.emit('system', 'You are muted. Cannot go live.');
+      socket.emit("system", "You are muted. Cannot go live.");
       return;
     }
-    const kind = data.kind === 'screen' ? 'screen' : 'camera';
+    const kind = data.kind === "screen" ? "screen" : "camera";
     liveBroadcasters.set(socket.id, { username: socket.username, kind });
-    socket.broadcast.emit('user-live', {
+    socket.broadcast.emit("user-live", {
       socketId: socket.id,
       username: socket.username,
-      kind
+      kind,
     });
-    io.emit('system', `${socket.username} went live (${kind})`);
+    io.emit("system", `${socket.username} went live (${kind})`);
   });
 
-  socket.on('end-live', () => {
+  socket.on("end-live", () => {
     const info = liveBroadcasters.get(socket.id);
     if (!info) return;
     liveBroadcasters.delete(socket.id);
-    socket.broadcast.emit('user-ended-live', {
+    socket.broadcast.emit("user-ended-live", {
       socketId: socket.id,
-      username: info.username
+      username: info.username,
     });
-    io.emit('system', `${info.username} ended the live stream`);
+    io.emit("system", `${info.username} ended the live stream`);
   });
 
-  socket.on('watch-live', (data = {}) => {
+  socket.on("watch-live", (data = {}) => {
     const targetId = data && data.broadcasterId;
-    if (!targetId || !liveBroadcasters.has(targetId) || targetId === socket.id) return;
-    io.to(targetId).emit('watch-request', { viewerId: socket.id });
+    if (!targetId || !liveBroadcasters.has(targetId) || targetId === socket.id)
+      return;
+    io.to(targetId).emit("watch-request", { viewerId: socket.id });
   });
 
-  socket.on('webrtc-signal', (data = {}) => {
+  socket.on("webrtc-signal", (data = {}) => {
     const targetId = data && data.targetId;
     if (!targetId || targetId === socket.id) return;
-    io.to(targetId).emit('webrtc-signal', {
+    io.to(targetId).emit("webrtc-signal", {
       fromId: socket.id,
       type: data.type,
-      payload: data.payload
+      payload: data.payload,
     });
   });
 
-  socket.on('disconnect', () => {
+  socket.on("disconnect", () => {
     const live = liveBroadcasters.get(socket.id);
     if (live) {
       liveBroadcasters.delete(socket.id);
-      socket.broadcast.emit('user-ended-live', {
+      socket.broadcast.emit("user-ended-live", {
         socketId: socket.id,
-        username: live.username
+        username: live.username,
       });
-      socket.broadcast.emit('system', live.username + ' ended the live stream');
+      socket.broadcast.emit("system", live.username + " ended the live stream");
     }
     if (socket.username) {
-      socket.broadcast.emit('system', socket.username + ' left the chat');
+      socket.broadcast.emit("system", socket.username + " left the chat");
     }
     // CHG-036 — presence: remove this socket
     if (milliwayPresence.delete(socket.id)) {
-      socket.broadcast.emit('presence:leave', { id: socket.id });
+      socket.broadcast.emit("presence:leave", { id: socket.id });
     }
   });
 });
 
 // CHG-004/005 — Nest World /nest JWT handshake + presence roster (no three.js)
-const nestNs = io.of('/nest');
+const nestNs = io.of("/nest");
 
 nestNs.use((socket, next) => {
   try {
-    const raw = socket.handshake && socket.handshake.query && socket.handshake.query.token;
+    const raw =
+      socket.handshake &&
+      socket.handshake.query &&
+      socket.handshake.query.token;
     const token = Array.isArray(raw) ? raw[0] : raw;
-    if (!token || typeof token !== 'string' || !token.trim()) {
-      return next(new Error('missing_token'));
+    if (!token || typeof token !== "string" || !token.trim()) {
+      return next(new Error("missing_token"));
     }
 
     const secret = process.env.WORLD_TOKEN_SECRET;
     if (!secret) {
-      console.error('[nest-ns] WORLD_TOKEN_SECRET is not set');
-      return next(new Error('not_configured'));
+      console.error("[nest-ns] WORLD_TOKEN_SECRET is not set");
+      return next(new Error("not_configured"));
     }
 
     let payload;
     try {
       payload = jwt.verify(token.trim(), secret);
     } catch (err) {
-      return next(new Error('invalid_token'));
+      return next(new Error("invalid_token"));
     }
 
-    if (!payload || typeof payload !== 'object') {
-      return next(new Error('invalid_claims'));
+    if (!payload || typeof payload !== "object") {
+      return next(new Error("invalid_claims"));
     }
-    if (typeof payload.sub !== 'string' || !payload.sub.trim()) {
-      return next(new Error('invalid_claims'));
+    if (typeof payload.sub !== "string" || !payload.sub.trim()) {
+      return next(new Error("invalid_claims"));
     }
-    if (typeof payload.jti !== 'string' || !payload.jti) {
-      return next(new Error('invalid_claims'));
+    if (typeof payload.jti !== "string" || !payload.jti) {
+      return next(new Error("invalid_claims"));
     }
-    if (typeof payload.sid !== 'string' || !payload.sid) {
-      return next(new Error('invalid_claims'));
+    if (typeof payload.sid !== "string" || !payload.sid) {
+      return next(new Error("invalid_claims"));
     }
-    if (typeof payload.nonce !== 'string' || !payload.nonce) {
-      return next(new Error('invalid_claims'));
+    if (typeof payload.nonce !== "string" || !payload.nonce) {
+      return next(new Error("invalid_claims"));
     }
 
     if (nestUsedJtis.has(payload.jti)) {
-      return next(new Error('token_used'));
+      return next(new Error("token_used"));
     }
     if (nestCount >= NEST_CAP) {
-      return next(new Error('nest_full'));
+      return next(new Error("nest_full"));
     }
 
     // Reserve jti immediately so two racing handshakes cannot both succeed
@@ -1005,14 +1152,14 @@ nestNs.use((socket, next) => {
     socket.data.nestJti = payload.jti;
     return next();
   } catch (err) {
-    return next(new Error('invalid_token'));
+    return next(new Error("invalid_token"));
   }
 });
 
-nestNs.on('connection', (socket) => {
+nestNs.on("connection", (socket) => {
   const handle = socket.data && socket.data.nestHandle;
   if (!handle) {
-    console.log('[nest-ns] fail: missing handle after auth');
+    console.log("[nest-ns] fail: missing handle after auth");
     socket.disconnect(true);
     return;
   }
@@ -1027,8 +1174,8 @@ nestNs.on('connection', (socket) => {
     }
     nestPlayers.delete(prev.id);
     nestByHandle.delete(handleKey);
-    nestNs.emit('playerLeft', { id: prev.id });
-    console.log('[nest-ns] replace-tab', handle, 'oldId=' + prev.id);
+    nestNs.emit("playerLeft", { id: prev.id });
+    console.log("[nest-ns] replace-tab", handle, "oldId=" + prev.id);
     prev.disconnect(true);
   }
 
@@ -1037,29 +1184,34 @@ nestNs.on('connection', (socket) => {
   socket.data.nestCounted = true;
   nestPlayers.set(socket.id, { id: socket.id, handle: handle });
   nestByHandle.set(handleKey, socket);
-  console.log('[nest-ns] join', handle, 'nestCount=' + nestCount);
+  console.log("[nest-ns] join", handle, "nestCount=" + nestCount);
 
   // currentPlayers includes self so B sees A and B
   const roster = Array.from(nestPlayers.values());
-  socket.emit('joined', { handle: handle });
-  socket.emit('currentPlayers', roster);
-  socket.broadcast.emit('playerJoined', { id: socket.id, handle: handle });
+  socket.emit("joined", { handle: handle });
+  socket.emit("currentPlayers", roster);
+  socket.broadcast.emit("playerJoined", { id: socket.id, handle: handle });
 
-  socket.on('disconnect', (reason) => {
+  socket.on("disconnect", (reason) => {
     if (socket.data && socket.data.nestCounted) {
       nestCount = Math.max(0, nestCount - 1);
       socket.data.nestCounted = false;
-      console.log('[nest-ns] leave', handle, 'nestCount=' + nestCount, 'reason=' + reason);
+      console.log(
+        "[nest-ns] leave",
+        handle,
+        "nestCount=" + nestCount,
+        "reason=" + reason,
+      );
     }
     nestPlayers.delete(socket.id);
     if (nestByHandle.get(handleKey) === socket) {
       nestByHandle.delete(handleKey);
     }
-    nestNs.emit('playerLeft', { id: socket.id });
+    nestNs.emit("playerLeft", { id: socket.id });
   });
 });
 
 const PORT = 3000;
 server.listen(PORT, () => {
-  console.log('Milliway chat running on port ' + PORT);
+  console.log("Milliway chat running on port " + PORT);
 });
