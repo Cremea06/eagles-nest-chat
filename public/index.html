@@ -835,6 +835,22 @@
       setTimeout(closePriv, 5000);
     });
 
+    // CHG-042 — /?login=1|true (Shop /login): once per page load, after the join ack, a guest gets the
+    // same pane as typing /login. The param is stripped only when login actually completes (member 'joined').
+    let loginFlag = /^(1|true)$/.test(new URLSearchParams(location.search).get('login') || '') ? 'wait' : '';
+    socket.on('joined', (data) => {
+      if (!loginFlag) return;
+      const member = !/^guest-user \d+$/i.test(String((data && data.username) || ''));
+      if (loginFlag === 'wait') {
+        loginFlag = member ? '' : 'open';
+        if (!member) openPriv('login');
+      } else if (member) {
+        loginFlag = '';
+        const q = location.search.slice(1).split('&').filter(p => p && p.split('=')[0] !== 'login').join('&');
+        history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+      }
+    });
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       if (!input.value) return;
