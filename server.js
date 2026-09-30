@@ -8,6 +8,7 @@ const path = require('path');
 const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { createLast5 } = require('./lib/last5');
 
 const app = express();
 const server = http.createServer(app);
@@ -55,6 +56,12 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// CHG-044 — /last5.txt: world-readable tail (last 5 lines) of the public Milliway room.
+// Stored outside public/ (default data/last5.txt, gitignored) so deploys stay clean.
+const last5 = createLast5(process.env.LAST5_PATH || path.join(__dirname, 'data', 'last5.txt'));
+last5.init();
+app.get('/last5.txt', last5.handler);
 
 app.get(['/world', '/world/'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'world', 'index.html'));
@@ -869,6 +876,7 @@ io.on('connection', (socket) => {
       username: displayName,
       message: msg
     });
+    last5.record(displayName, msg); // CHG-044 — public human line
 
     const lowerMsg = text.toLowerCase();
     const isMentioned = lowerMsg.includes('@neagle') ||
@@ -885,6 +893,7 @@ io.on('connection', (socket) => {
           username: 'Neagle',
           message: reply
         });
+        last5.record('Neagle', reply); // CHG-044 — public Neagle line
       }, 800 + Math.random() * 700);
     }
   });
