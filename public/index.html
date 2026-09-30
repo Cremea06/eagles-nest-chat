@@ -814,7 +814,12 @@
     function addPriv(from, text) {
       const div = document.createElement('div');
       div.className = 'msg';
-      div.innerHTML = '<span class="username">' + from + ':</span> ' + text;
+      // CHG-048 — text only, never HTML (same <span class="username"> + text structure as before)
+      const nameEl = document.createElement('span');
+      nameEl.className = 'username';
+      nameEl.textContent = from + ':';
+      div.appendChild(nameEl);
+      div.appendChild(document.createTextNode(' ' + text));
       privLog.appendChild(div);
       privLog.scrollTop = privLog.scrollHeight;
     }
@@ -937,8 +942,12 @@
     socket.on('chat message', (data) => {
       const div = document.createElement('div');
       div.className = 'msg';
-      const nameClass = data.username === 'Neagle' ? 'neagle' : 'username';
-      div.innerHTML = '<span class="' + nameClass + '">' + data.username + ':</span> ' + data.message;
+      // CHG-048 — names and messages (people and Neagle) render as text, never HTML
+      const nameEl = document.createElement('span');
+      nameEl.className = data.username === 'Neagle' ? 'neagle' : 'username';
+      nameEl.textContent = data.username + ':';
+      div.appendChild(nameEl);
+      div.appendChild(document.createTextNode(' ' + data.message));
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
     });
