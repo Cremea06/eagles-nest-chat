@@ -40,6 +40,12 @@ function isRegisteredAuthed(socket) {
 
 const XAI_API_KEY = process.env.XAI_API_KEY;
 
+// CHG-049 — read-only member role for the homepage. Registered BEFORE the global cors() below:
+// that one reflects its own origin list without credentials (and answers every OPTIONS itself),
+// which would break a credentialed fetch. This route sets its own CORS headers (memberMe).
+app.options('/api/member/me', memberMe);
+app.get('/api/member/me', memberMe);
+
 app.use(cors({
   origin: [
     'https://afirstflag.com',
@@ -123,6 +129,7 @@ const MEMBER_SECRET = String(process.env.MEMBER_TOKEN_SECRET || '');
 const memberOn = MEMBER_SECRET.length >= 32;
 if (!memberOn) console.warn('[member] MEMBER_TOKEN_SECRET missing or under 32 chars; remember-me is off');
 const MEMBER_ORIGINS = new Set(['https://chat.afirstflag.com', 'http://localhost:3000', 'http://127.0.0.1:3000']);
+const MEMBER_ME_ORIGINS = new Set(['https://afirstflag.com', 'https://www.afirstflag.com']); // CHG-049 homepage
 /** @type {Map<string, { username: string, exp: number }>} one-time claim -> member (60 s) */
 const memberClaims = new Map();
 const AUTH_CODE_LOG = process.env.AUTH_CODE_LOG === '1';
@@ -455,6 +462,24 @@ app.post('/api/member/logout', (req, res) => {
   res.clearCookie(MEMBER_COOKIE, memberCookieOpts());
   res.json({ ok: true });
 });
+
+// CHG-049 — GET/OPTIONS /api/member/me: {member:true,name} or {member:false}. Pure read: no writes,
+// no Set-Cookie (a stale cookie is just "not a member"), no logging. CORS headers only for the
+// exact homepage origins; other foreign origins get {member:false} without the cookie being read.
+function memberMe(req, res) {
+  const origin = req.get('origin');
+  const home = !!origin && MEMBER_ME_ORIGINS.has(origin);
+  res.set({ 'Cache-Control': 'no-store', Vary: 'Origin' });
+  if (home) {
+    res.set({ 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true' });
+  }
+  if (req.method === 'OPTIONS') {
+    if (home) res.set({ 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '600' });
+    return res.status(204).end();
+  }
+  const { user } = (home || memberOriginOk(origin)) ? readMember(req.get('cookie')) : {};
+  res.json(user ? { member: true, name: user.username } : { member: false });
+}
 
 
 // CHG-002 — Bitcoin address lookup (mainnet 1…/3…/bc1q…/bc1p… → Mempool.space; no allowlist)
