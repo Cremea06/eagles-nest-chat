@@ -481,6 +481,18 @@
       margin-bottom: 8px;
     }
     #privForm { display: flex; gap: 8px; }
+    /* CHG-047 — close (x) on the private pane */
+    #privHead { display: flex; justify-content: flex-end; margin: -6px -6px 2px 0; }
+    #privClose {
+      background: none;
+      border: none;
+      color: #a0aec0;
+      font-size: 1.35rem;
+      line-height: 1;
+      padding: 0 6px;
+      cursor: pointer;
+    }
+    #privClose:hover, #privClose:focus-visible { color: #fff; }
     #privInput {
       flex: 1;
       padding: 8px 10px;
@@ -559,6 +571,7 @@
   </div>
 
     <div id="privPane" class="glass">
+    <div id="privHead"><button id="privClose" type="button" aria-label="Close" title="Close (Esc)">&times;</button></div>
     <div id="privLog"></div>
     <form id="privForm">
       <input id="privInput" autocomplete="off" />
@@ -806,7 +819,10 @@
       privLog.scrollTop = privLog.scrollHeight;
     }
 
+    let privTimer = null;
+
     function openPriv(kind) {
+      clearTimeout(privTimer);
       privLog.innerHTML = '';
       privPane.classList.add('open');
       socket.emit('priv:open', { kind });
@@ -814,8 +830,15 @@
     }
 
     function closePriv() {
+      clearTimeout(privTimer);
       privPane.classList.remove('open');
     }
+
+    // CHG-047 — close the private pane with the x or Esc
+    document.getElementById('privClose').addEventListener('click', closePriv);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && privPane.classList.contains('open')) closePriv();
+    });
 
     privForm.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -832,23 +855,47 @@
 
     socket.on('priv:result', (data) => {
       addPriv('SERVER', (data && data.text) || 'Fail. Closing in 2 seconds');
-      setTimeout(closePriv, 5000);
+      clearTimeout(privTimer);
+      privTimer = setTimeout(closePriv, 5000);
     });
 
     // CHG-042 — /?login=1|true (Shop /login): once per page load, after the join ack, a guest gets the
     // same pane as typing /login. The param is stripped only when login actually completes (member 'joined').
+    // CHG-047: a remembered member (already a member on the first 'joined') skips the pane; the param is stripped too.
     let loginFlag = /^(1|true)$/.test(new URLSearchParams(location.search).get('login') || '') ? 'wait' : '';
+    function stripLoginParam() {
+      const q = location.search.slice(1).split('&').filter(p => p && p.split('=')[0] !== 'login').join('&');
+      history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+    }
     socket.on('joined', (data) => {
       if (!loginFlag) return;
       const member = !/^guest-user \d+$/i.test(String((data && data.username) || ''));
       if (loginFlag === 'wait') {
         loginFlag = member ? '' : 'open';
-        if (!member) openPriv('login');
+        if (member) stripLoginParam();
+        else openPriv('login');
       } else if (member) {
         loginFlag = '';
-        const q = location.search.slice(1).split('&').filter(p => p && p.split('=')[0] !== 'login').join('&');
-        history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+        stripLoginParam();
       }
+    });
+
+    // CHG-047 — remember me: swap the one-time claim for the HttpOnly cookie; clear a cookie the server rejected.
+    function memberPost(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+        credentials: 'same-origin'
+      }).catch(() => {});
+    }
+
+    socket.on('member:claim', (data) => {
+      if (data && data.claim) memberPost('/api/member/session', { claim: data.claim });
+    });
+
+    socket.on('member:stale', () => {
+      memberPost('/api/member/logout');
     });
 
     form.addEventListener('submit', (e) => {
@@ -864,6 +911,11 @@
       if (cmd === '/register') {
         input.value = '';
         openPriv('register');
+        return;
+      }
+      if (cmd === '/logout') {
+        input.value = '';
+        memberPost('/api/member/logout').then(() => location.reload());
         return;
       }
       if (cmd === '/auth') {

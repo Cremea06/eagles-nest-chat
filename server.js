@@ -9,6 +9,7 @@ const nodemailer = require('nodemailer');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { createLast5 } = require('./lib/last5');
+const memberToken = require('./lib/memberToken');
 
 const app = express();
 const server = http.createServer(app);
@@ -114,6 +115,52 @@ function saveUsers(users) {
 let registeredUsers = loadUsers();
 console.log(`Loaded ${registeredUsers.length} registered users`);
 
+// CHG-047 — remember signed-in members for 30 days (HttpOnly cookie holding a signed token).
+// Off unless MEMBER_TOKEN_SECRET is 32+ chars; when off, everything behaves as before.
+const MEMBER_COOKIE = 'nest_member';
+const MEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MEMBER_SECRET = String(process.env.MEMBER_TOKEN_SECRET || '');
+const memberOn = MEMBER_SECRET.length >= 32;
+if (!memberOn) console.warn('[member] MEMBER_TOKEN_SECRET missing or under 32 chars; remember-me is off');
+const MEMBER_ORIGINS = new Set(['https://chat.afirstflag.com', 'http://localhost:3000', 'http://127.0.0.1:3000']);
+/** @type {Map<string, { username: string, exp: number }>} one-time claim -> member (60 s) */
+const memberClaims = new Map();
+const AUTH_CODE_LOG = process.env.AUTH_CODE_LOG === '1';
+const AUTH_MAX_TRIES = 5;
+
+// Browsers always send Origin cross-origin; same-origin polling GETs may omit it.
+function memberOriginOk(origin) {
+  return !origin || MEMBER_ORIGINS.has(origin);
+}
+
+// -> { user } for a valid, current cookie; { stale: true } for one to clear; {} for none.
+function readMember(cookieHeader) {
+  const raw = memberToken.parseCookie(cookieHeader, MEMBER_COOKIE);
+  if (!raw || !memberOn) return {};
+  const claims = memberToken.verify(MEMBER_SECRET, raw);
+  const user = claims && findUserByName(claims.u);
+  if (!user || (user.tokenVersion || 0) !== claims.tv) return { stale: true };
+  return { user };
+}
+
+// Secure always: prod is HTTPS-only, and browsers accept Secure cookies on http://localhost.
+function memberCookieOpts(maxAge) {
+  const opts = { httpOnly: true, secure: true, sameSite: 'lax', path: '/' };
+  if (maxAge) opts.maxAge = maxAge;
+  return opts;
+}
+
+function purgeMemberClaims() {
+  const now = Date.now();
+  for (const [claim, info] of memberClaims) {
+    if (info.exp <= now) memberClaims.delete(claim);
+  }
+}
+
+function logAuthCode(kind, email, username, code) {
+  console.log('[auth code]', kind, maskEmail(email), username, AUTH_CODE_LOG ? code : '(hidden)');
+}
+
 function findUserByName(username) {
   const key = String(username || '').toLowerCase();
   return registeredUsers.find(u => String(u.username).toLowerCase() === key);
@@ -161,6 +208,7 @@ function handleCommand(socket, msg) {
       '/login               - Sign in with email',
       '/register            - Create a username and email',
       '/whoami              - Your account status',
+      '/logout              - Sign out on every device',
       '/mute <username>     - Mute a user (temporary)',
       '/nest                - Mint a Nest World pass (registered members)'
     ].join('\n');
@@ -374,6 +422,38 @@ app.post('/api/heartbeat', (req, res) => {
     activeVisitors.set(visitorId, Date.now());
   }
   res.json({ success: true });
+});
+
+// CHG-047 — swap the one-time claim (sent on the socket after /auth) for the member cookie.
+app.post('/api/member/session', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const claim = req.body && typeof req.body.claim === 'string' ? req.body.claim : '';
+  const info = claim ? memberClaims.get(claim) : null;
+  if (info) memberClaims.delete(claim);
+  purgeMemberClaims();
+  const user = info && info.exp > Date.now() ? findUserByName(info.username) : null;
+  if (!memberOn || !user || !memberOriginOk(req.get('origin'))) {
+    return res.json({ ok: false });
+  }
+  const token = memberToken.sign(MEMBER_SECRET, { u: user.username, tv: user.tokenVersion || 0 }, MEMBER_TTL_MS);
+  res.cookie(MEMBER_COOKIE, token, memberCookieOpts(MEMBER_TTL_MS));
+  res.json({ ok: true });
+});
+
+// CHG-047 — /logout (every device: bump tokenVersion) and quiet cleanup of a rejected cookie.
+app.post('/api/member/logout', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!memberOriginOk(req.get('origin'))) {
+    return res.json({ ok: false });
+  }
+  const { user } = readMember(req.get('cookie'));
+  if (user) {
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    saveUsers(registeredUsers);
+    console.log('[member] logout', user.username);
+  }
+  res.clearCookie(MEMBER_COOKIE, memberCookieOpts());
+  res.json({ ok: true });
 });
 
 
@@ -632,7 +712,13 @@ async function sendAuthEmail(to, code) {
 }
 
 function makeAuthCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 1000000));
+}
+
+function codeMatches(expected, given) {
+  const a = Buffer.from(String(expected || ''));
+  const b = Buffer.from(String(given || ''));
+  return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 function isGuestName(name) {
@@ -655,6 +741,22 @@ function presenceSync(socket) {
   socket.emit('presence:sync', { users, ts: Date.now() });
 }
 
+// CHG-047 — remembered member: check the cookie on the handshake (default namespace only,
+// /nest untouched). Never rejects: no/bad cookie means the socket joins as a guest.
+io.use((socket, next) => {
+  try {
+    const headers = socket.handshake.headers || {};
+    if (memberOn && memberOriginOk(headers.origin)) {
+      const found = readMember(headers.cookie);
+      if (found.user) socket.data.memberName = found.user.username;
+      else if (found.stale) socket.data.memberStale = true;
+    }
+  } catch (err) {
+    socket.data.memberName = null;
+  }
+  next();
+});
+
 io.on('connection', (socket) => {
   console.log('A user connected');
   clearReg(socket);
@@ -663,11 +765,16 @@ io.on('connection', (socket) => {
     let username = '';
     let tracking = '';
 
-    if (typeof data === 'string') {
-      username = data;
-    } else if (data && typeof data === 'object') {
-      username = (data.username || '').trim();
-      tracking = (data.tracking || '').trim();
+    // CHG-047 — names sent by the browser are ignored: a member comes from the verified
+    // cookie (or an /auth on this socket); everyone else gets a server-assigned guest name.
+    if (data && typeof data === 'object') {
+      tracking = String(data.tracking || '').trim();
+    }
+    const member = socket.data.memberName ? findUserByName(socket.data.memberName) : null;
+    if (member) {
+      username = member.username;
+      socket.authState = 'authed';
+      console.log('[member] resume', username);
     }
 
     if (!username) {
@@ -683,7 +790,7 @@ io.on('connection', (socket) => {
     }
 
     socket.username = username;
-    socket.isGuest = /^guest-user \d+$/i.test(username);
+    socket.isGuest = !member;
 
     const isFlagholder = tracking && flagholders.includes(tracking);
     socket.isFlagholder = isFlagholder;
@@ -692,6 +799,10 @@ io.on('connection', (socket) => {
     const displayName = isFlagholder ? `${username} (flagholder)` : username;
 
     socket.emit('joined', { username });
+    if (socket.data.memberStale) {
+      socket.data.memberStale = false;
+      socket.emit('member:stale');
+    }
     socket.broadcast.emit('system', `${displayName} joined the chat`);
     socket.emit('system', `Welcome to Milliway, ${displayName}! Type /help for commands.`);
     socket.emit('usage', usagePayload());
@@ -729,16 +840,17 @@ io.on('connection', (socket) => {
         const code = makeAuthCode();
         existing.pendingCode = code;
         existing.pendingUntil = Date.now() + 10 * 60 * 1000;
+        existing.pendingTries = 0;
         saveUsers(registeredUsers);
         socket.pendingEmail = existing.email;
         socket.pendingUsername = existing.username;
         socket.authState = 'pending';
-        console.log('[auth code] login', existing.email, existing.username, code);
+        logAuthCode('login', existing.email, existing.username, code);
         try {
           await sendAuthEmail(existing.email, code);
           socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
         } catch (err) {
-          console.error('[mail fail]', err.message);
+          console.error('[mail fail]', err.code || err.message); // CHG-047: SMTP messages can echo the address
           socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
         }
       } else {
@@ -780,12 +892,12 @@ io.on('connection', (socket) => {
       socket.pendingEmail = email;
       socket.pendingUsername = socket.priv.username;
       socket.authState = 'pending';
-      console.log('[auth code] register', email, socket.priv.username, code);
+      logAuthCode('register', email, socket.priv.username, code);
       try {
         await sendAuthEmail(email, code);
         socket.emit('priv:result', { ok: true, text: 'Complete. Closing in 5 seconds' });
       } catch (err) {
-        console.error('[mail fail]', err.message);
+        console.error('[mail fail]', err.code || err.message); // CHG-047: SMTP messages can echo the address
         socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
       }
       socket.priv = null;
@@ -795,7 +907,7 @@ io.on('connection', (socket) => {
   socket.on('auth:try', (data = {}) => {
     const code = String(data.code || '').trim();
     const guest = isGuestName(socket.username) && socket.authState !== 'pending';
-    console.log('[auth:try]', code, socket.authState, socket.pendingEmail, socket.username);
+    console.log('[auth:try]', AUTH_CODE_LOG ? code : '(hidden)', socket.authState, maskEmail(socket.pendingEmail), socket.username);
 
     if (guest || socket.authState !== 'pending' || !code) {
       socket.emit('system', 'Unknown command: /auth. Type /help for a list.');
@@ -805,11 +917,28 @@ io.on('connection', (socket) => {
     const email = socket.pendingEmail;
     const user = findUserByEmail(email);
     const ok = user &&
-      String(user.pendingCode) === code &&
+      codeMatches(user.pendingCode, code) &&
       user.pendingUntil &&
       Date.now() < user.pendingUntil;
 
     if (!ok) {
+      // CHG-047 — 5 wrong tries on one code: the code is void; the user must /login again.
+      if (user && user.pendingCode) {
+        user.pendingTries = (user.pendingTries || 0) + 1;
+        if (user.pendingTries >= AUTH_MAX_TRIES) {
+          user.pendingCode = null;
+          user.pendingUntil = null;
+          user.pendingTries = 0;
+          saveUsers(registeredUsers);
+          socket.authState = null;
+          socket.pendingEmail = null;
+          socket.pendingUsername = null;
+          console.log('[auth] too many wrong codes', socket.username);
+          socket.emit('system', 'Too many wrong codes. Type /login to get a new code.');
+          return;
+        }
+        saveUsers(registeredUsers);
+      }
       socket.emit('system', 'Unknown command: /auth. Type /help for a list.');
       return;
     }
@@ -817,6 +946,7 @@ io.on('connection', (socket) => {
     user.verified = true;
     user.pendingCode = null;
     user.pendingUntil = null;
+    user.pendingTries = 0;
     saveUsers(registeredUsers);
 
     const oldName = socket.username;
@@ -826,10 +956,20 @@ io.on('connection', (socket) => {
     socket.pendingEmail = null;
     socket.pendingUsername = null;
 
+    socket.data.memberName = user.username;
+
     socket.emit('joined', { username: socket.username });
     socket.emit('system', 'Complete.');
     socket.broadcast.emit('system', `${socket.username} has joined the chat`);
     console.log('[auth ok]', oldName, '->', socket.username);
+
+    // CHG-047 — one-time claim (60 s); the page swaps it for the HttpOnly cookie.
+    if (memberOn) {
+      purgeMemberClaims();
+      const claim = crypto.randomBytes(32).toString('base64url');
+      memberClaims.set(claim, { username: user.username, exp: Date.now() + 60 * 1000 });
+      socket.emit('member:claim', { claim });
+    }
 
     // CHG-036 — presence: name change
     if (milliwayPresence.has(socket.id)) {
