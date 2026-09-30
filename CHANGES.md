@@ -1,141 +1,117 @@
-# CHG-047: keep Nest members signed in + close (x) on the login pane
+# CHG-048: escape chat rendering (stored XSS fix)
 
 Nest/Milliway only (chat.afirstflag.com, repo Cremea06/eagles-nest-chat). Shop untouched.
-Not pushed, not deployed, not marked shipped. Built to the approved `DESIGN.md` (2026-09-30).
+Not pushed, not deployed, not marked shipped.
 
 ## Base
 
 - Repo: https://github.com/Cremea06/eagles-nest-chat, branch `main`
-- Base SHA: `a46b679968f11973f8f6b6c8c06106ce035e3222` ("CHG-044 publish last 5 milliway lines at /last5.txt"). Fresh clone on 2026-09-30.
-- `CHG-047.diff` is `git diff` against that SHA, new file included (it also replaces this CHANGES.md, as CHG-044 did).
+- Base SHA: `fe77ad86b472070effc3c6f156c6cfba97c9167c` ("CHG-047: persis member sign-in via HttpOnly cookie"). Fresh clone on 2026-09-30.
+- `CHG-048.diff` is `git diff` against that SHA (it also replaces this CHANGES.md, as prior CHGs did).
 
 ## What changed
 
 | File | Change | +/- |
 |---|---|---|
-| `lib/memberToken.js` | **new**. Signed member token `mt1.<body>.<sig>` (HMAC-SHA256, Node `crypto`, base64url, `timingSafeEqual`, 60 s future-iat skew, 1 KB cap). `sign`, `verify` (returns null, never throws), and a tiny `parseCookie` | +65 / -0 |
-| `server.js` | Remember-me config and helpers. `io.use` cookie check (default namespace only). `join` ignores browser-sent names. Claim on `/auth`. `POST /api/member/session` and `POST /api/member/logout`. Wrong-try limit. `crypto.randomInt` codes, timing-safe code compare. Codes and emails removed from logs. `/logout` added to `/help` | +153 / -13 |
-| `public/index.html` | x button and Esc on the private pane (plus a fix for the old 5 s timer). `member:claim` / `member:stale` handlers. `/logout` command. The CHG-042 hook also strips `?login` for an already-remembered member | +56 / -4 |
-| `.env.example` | `MEMBER_TOKEN_SECRET=` and `AUTH_CODE_LOG=`, blank, with comments | +6 / -0 |
+| `public/index.html` | The two HTML sinks that took user or AI text now build DOM: `<span class="username">` (or `neagle`) with `textContent = name + ':'`, followed by a text node `' ' + message`. The structure and classes are the same as before, so the look is identical. | +12 / -3 |
 | `CHANGES.md` | this file | replaced |
 
-No new npm dependencies (`package.json` / `package-lock.json` unchanged; jsonwebtoken is still used only by `/nest`).
+No other file changed. `server.js`, `lib/last5.js`, `lib/memberToken.js`, `public/world/index.html` and `.env.example` are byte-identical to fe77ad8. No new dependencies. No `escapeHtml` helper was needed, because no markup has to wrap user text.
 
-### How it works
-1. `/auth CODE` succeeds as before. The server then sends that socket a one-time **claim** (32 random bytes, 60 s, single use).
-2. The page POSTs the claim to `/api/member/session`. The server replies with the cookie `nest_member`: **HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000 (30 days, fixed)**. It is host-only (no `Domain`), so afirstflag.com never receives it.
-   The token carries: username, per-user `tokenVersion`, iat, exp. No email.
-3. On every socket.io handshake the browser sends the cookie. `io.use` verifies it and checks that `tokenVersion` matches users.json, then the `join` handler joins that socket **directly as the member**. The result is one "X joined the chat" line and one `presence:join`, with no guest-then-upgrade.
-4. Anything wrong with the cookie (tampered, expired, other secret, old version, deleted user, garbage) means a quiet guest join plus a `member:stale` event. The page then POSTs `/api/member/logout`, which clears the cookie.
-5. `/logout` (typed in chat) POSTs `/api/member/logout`. The server bumps the user's `tokenVersion` in users.json (signing out **every** device), clears this browser's cookie, and the page reloads as a guest.
-6. Cookies are only honoured from origin `https://chat.afirstflag.com` (or `http://localhost:3000` / `http://127.0.0.1:3000` for local runs), or when no Origin is sent (same-origin polling). A handshake from any other origin is treated as a guest.
+### Audit: every innerHTML / insertAdjacentHTML / outerHTML / document.write
 
-### Decisions made during the build
-- **Wrong-try limit: 5.** The 5th wrong `/auth` voids the pending code and replies "Too many wrong codes. Type /login to get a new code." The counter (`pendingTries`) is kept on the user record, so it doesn't reset per socket. It resets when a new code is issued. Tries 1-4 keep the old opaque "Unknown command: /auth" reply.
-- **Cookie `Secure`: always on.** It does not depend on the request scheme, `trust proxy`, or X-Forwarded-Proto. That way production gets Secure whatever headers nginx forwards. Local http tests still work because Chrome and Firefox accept Secure cookies on `http://localhost` (tested with headless Chrome 154 on http://localhost:3000). Safari does not, so test locally in Chrome.
-- **Secret unset or under 32 chars:** one `[member] ... remember-me is off` warning, then everything works as before. No claim is sent and cookies are ignored but **not cleared**, so restoring the secret brings members back.
-- **Logs:** `[auth code]` and `[auth:try]` print `(hidden)` instead of the code, and a masked email (`t***@example.com`). `AUTH_CODE_LOG=1` prints the code (the email stays masked). `[mail fail]` now prints the SMTP error code first, because SMTP messages can echo the address. New lines: `[member] resume <name>`, `[member] logout <name>`, `[auth] too many wrong codes <name>`. Tokens, claims and cookies are never logged.
-- **Browser-sent names on `join` are ignored.** Members come only from the verified cookie or an `/auth` on that socket; everyone else gets a server-assigned Guest-User name. The optional `tracking` (flagholder) field is still read.
+| File:line (fe77ad8, then after) | Code | Fed by | Verdict |
+|---|---|---|---|
+| public/index.html:817 (now :818-822) | `addPriv`: `div.innerHTML = '<span class="username">' + from + ':</span> ' + text` | private pane: your own typed input echoed as `YOU:`, plus server prompts | **fixed** (DOM + textContent) |
+| public/index.html:826 (now :831) | `privLog.innerHTML = ''` | constant (clears the pane) | safe static |
+| public/index.html:941 (now :946-950) | `'chat message'`: `div.innerHTML = '<span class="' + nameClass + '">' + data.username + ':</span> ' + data.message` | every public chat line: people's names and text, and Neagle (AI) replies | **fixed** (DOM + textContent) |
+| public/world/index.html:188 | `listEl.innerHTML = ''` | constant (clears the player list) | safe static |
+
+There are no `insertAdjacentHTML`, `outerHTML` or `document.write` uses in either file. The world client lives in `public/world/index.html`, an inline module script; `three.min.js` is the vendored library.
+
+Other places that render user or AI text were already text-only, and were checked and left alone:
+- Main page: system lines (`/me`, "X joined", `/nest` output, `/help`): `div.textContent = msg` at :958, whose `white-space: pre-wrap` keeps `/help` newlines.
+- Who's here roster names: `name.textContent` at :1002.
+- Broadcast card "X is live": `setStatus` → `liveStatus.textContent` at :603, fed from :741 and :748.
+- Open World status at :1059, and the usage chip at :939.
+- World page: handle `handleEl.textContent` at :365, player list `li.textContent` at :195, status `statusEl.textContent` at :182.
+- `window.open(url)` at index.html:1077 only runs on a `world:pass` event, which the server never emits (the handler is dormant, as it was before). It is not an HTML sink.
+
+### Intentional HTML in messages?
+None. Server system lines already went through `textContent`. Server priv-pane prompts ("Login. Enter your email.", "Fail. Closing in 5 seconds") are plain text. Neagle's prompt asks for short plain sentences, and nothing in the app formats its replies as HTML. There was no linkify: URLs in chat were never clickable, unless someone typed raw `<a>` HTML, which was the XSS path itself. `/nest` pass links were already plain text in a system line. So nothing needed special handling. Newlines behave as before: chat lines collapse whitespace (CSS `white-space: normal`, the same as the old innerHTML rendering), and system lines keep `pre-wrap`.
+
+The one visible difference is intended: text that used to be interpreted as HTML now shows as typed. `&amp;` now shows `&amp;` (it used to show `&`), and `<b>x</b>` shows the tags instead of bold. Ordinary text, including `<`, `&&`, emoji and URLs, is pixel-identical (see below).
+
+### Server side (unchanged)
+- `server.js` builds no HTML from user input. `/world` and `/world/` are `sendFile` of a static page. `/api/*` return JSON. Auth emails are `text:` only. User text reaches Neagle only as a prompt string (that's prompt injection, not XSS, and out of scope).
+- `/last5.txt` is `Content-Type: text/plain; charset=utf-8` with `X-Content-Type-Options: nosniff` and `Cache-Control: no-store` (lib/last5.js:121-125). Payloads are stored and served as literal text, which is safe.
+- Express's default 404 and error pages escape the path or message and send `Content-Security-Policy: default-src 'none'`.
 
 ## What did not change
 
-- public/index.html: `#sideCol`, `#whoCard`, `#liveCard`, `#worldCard` / `#enterWorldBtn`, the world client script (including its `world:enter` emit), the CHG-042 `?login=1` hook (only the member-strip branch was added), and chat rendering (the `innerHTML` escaping fix is **CHG-048**, not here).
-- server.js: the `/nest` command and mint, `io.of('/nest')` and its handshake and roster, `/world`, the Milliway presence roster, `/last5.txt` + `lib/last5.js` (byte-identical), and the email text and 10-minute code lifetime. No `mintNestWorldPass` and no server `world:enter` handler were added.
-- Multi-tab: one roster row per socket, as before. `/logout` doesn't kick other *open* tabs; they drop to guest on their next reconnect or reload.
-- Out of scope (homepage role hydrate), both after CHG-048: **CHG-049 (Nest)** adds the read-only role endpoint with credentialed CORS for https://afirstflag.com only; **CHG-050 (Shop)** adds the Live-state chip that reads it.
+- public/index.html: `#sideCol`, `#whoCard`, `#liveCard`, `#worldCard` / `#enterWorldBtn` and the world client script (including its `world:enter` emit), the CHG-042 `?login=1` hook, and CHG-047's x / Esc, `member:claim` → `POST /api/member/session`, `member:stale`, and `/logout`.
+- server.js (untouched): `io.of('/nest')`, the `/nest` command, `/world`, the presence roster, `/last5.txt`, and `/api/member/session` / `/api/member/logout`. `lib/last5.js` and `lib/memberToken.js` are untouched. No `mintNestWorldPass` and no server `world:enter` handler.
+- Name rules: usernames are still server-assigned (Guest-User NNNN) or the registered username (since CHG-047). Registration still accepts any 2+ character name that isn't a guest name or already taken, so names containing HTML are possible. They now render as literal text everywhere.
+- Next: CHG-049 (Nest: read-only role endpoint, credentialed CORS for https://afirstflag.com only), then CHG-050 (Shop: Live-state chip reading it).
 
 ## VPS steps (for whoever ships it; not done here)
 
-The app loads `.env` with `require('dotenv').config()` (server.js line 1), which reads `.env` from the **process working directory**, i.e. the app dir pm2 starts in. dotenv does not override variables already set in pm2's environment. The pm2 process is **`Eagles Nest`** (from the project baseline).
+1. In the app dir: `git pull` (no `npm install`, no env changes).
+2. `pm2 restart "Eagles Nest"`
+3. Hard-refresh the chat page (Ctrl+Shift+R) so browsers pick up the new `index.html`.
 
-1. `cd` to the app dir, then `openssl rand -hex 32` and add `MEMBER_TOKEN_SECRET=<that 64-hex value>` to `.env`. Leave `AUTH_CODE_LOG` unset.
-2. `git pull` (no `npm install`: no dependency change).
-3. `pm2 restart "Eagles Nest" --update-env`
-4. `pm2 logs "Eagles Nest" --lines 30 --nostream` should show **no** `remember-me is off` line. If it does, the secret isn't loaded (check the pm2 cwd and `.env`).
-5. Keeping the secret: changing it signs everyone out, and removing it turns the feature off. Don't hand-edit users.json while pm2 runs (the app rewrites it from memory); stop pm2 first.
-
-Rollback: `git revert <CHG-047 commit>`, `git pull`, `pm2 restart "Eagles Nest"`. Leftover `nest_member` cookies are then ignored. The `tokenVersion` / `pendingTries` fields in users.json are harmless.
+Rollback: `git revert <CHG-048 commit>`, `git pull`, `pm2 restart "Eagles Nest"`.
 
 ## Test plan (VPS, after deploy)
 
-Use two browsers (A = Chrome, B = another browser or profile).
-1. **Sign in** on A (`/login`, email, `/auth CODE`). In DevTools > Application > Cookies, `nest_member` should show HttpOnly, Secure, SameSite Lax, expiring in about 30 days. `document.cookie` in the console must not show it.
-2. **Reload** A: still you. B sees one "X left the chat" and one "X joined the chat", no Guest-User line for A, and one row for A in Who's here.
-3. **Return visit**: quit Chrome completely, reopen, go to chat.afirstflag.com: still you. A **new tab** is you too (two rows while both are open, as before).
-4. **pm2 restart**: `pm2 restart "Eagles Nest"`. A's open page reconnects as you without a reload.
-5. **Tampered cookie**: in DevTools edit one character of the `nest_member` value, then reload. You are a quiet Guest-User (no error text) and the cookie disappears.
-6. **/logout**: sign in on A and on B. Type `/logout` on A: A reloads as a guest and the cookie is gone. Reload B: B is a guest and its old cookie is cleared (tokenVersion revoked it).
-7. **?login=1 as remembered member**: open `https://chat.afirstflag.com/?login=1`. No pane opens, and the address bar loses `login` (other params stay).
-8. **?login=1 as guest** (private window): the pane opens (unchanged); after `/auth` the param is stripped.
-9. **x and Esc**: `/login`, click x (closes); `/login` again, press Esc (closes). Reopening within 5 s of a result is no longer closed by the old timer.
-10. **Wrong-try limit**: request a code, type 5 wrong `/auth` codes. The 5th replies "Too many wrong codes. Type /login to get a new code.", and the real code is then refused. `/login` again gets a new code that works.
-11. **No codes/emails in logs**: `pm2 logs "Eagles Nest" --lines 300 --nostream | grep -E '\[auth'` shows `(hidden)` and `x***@domain` only, and `grep -Ec 'mt1\.|nest_member'` gives 0. `curl -s https://chat.afirstflag.com/last5.txt` shows only public lines. Optional: set `AUTH_CODE_LOG=1`, restart with `--update-env`, and the code appears. Remove it again.
-12. **Secret unset** (optional, at a quiet time): comment out `MEMBER_TOKEN_SECRET`, restart `--update-env`. One warning; sign-in by code still works; reload returns to Guest-User as before; no crash. Restore it and restart: members who still have a cookie are back.
-13. **Regression**: `/nest` pass and Open World Enter, Go Live, `/who`, `/whoami`, `/last5.txt`.
-14. **Deferred / expected-fail (not this CHG)**: the afirstflag.com homepage chip showing the real role. It stays as it is today until **CHG-049 (Nest: read-only role endpoint, credentialed CORS for https://afirstflag.com only)** and **CHG-050 (Shop: Live-state chip reading that endpoint)** ship, both after CHG-048.
+Use two browsers, A and B. Send each line from A as a public chat message, and look at both A and B:
+1. `<img src=x onerror=alert(1)>`: shows exactly as typed, no alert, no broken-image icon.
+2. `<script>alert(1)</script>`: shows as typed.
+3. `<svg onload=alert(1)>`: shows as typed.
+4. `"><b>bold</b>`: shows as typed, not bold.
+5. `literal &amp; and &lt; stay as typed`: shows `&amp;` and `&lt;` literally.
+6. `Hello 👋 café naïve 日本語 🇺🇸` and `see https://afirstflag.com/shop?a=1&b=2`: look exactly as before. The URL is readable text (it was never clickable).
+7. **Private pane echo**: type `/login`, then type payloads 1-4 into the pane. Each `YOU:` line shows as typed, with no alert.
+8. **Name containing HTML**: names are server-assigned since CHG-047, so use registration, which accepts any name. `/register`, username `<img src=x onerror=alert(1)>`, then a mailbox you control, then `/auth CODE`. B sees "`<img ...> has joined the chat`", the chat lines and the Who's here row as literal text. `/nest` then Enter: the world page shows the handle literally. Afterwards, delete that test user from users.json (stop pm2 first, since the app rewrites the file from memory).
+9. **Neagle reply containing HTML**: this can't be forced in prod. It was verified locally with a stubbed AI (below). In prod, `@neagle` replies should look as before.
+10. `/me <img src=x onerror=alert(1)>`: the system line shows it literally (it already did).
+11. `curl -si https://chat.afirstflag.com/last5.txt | head -5` shows `Content-Type: text/plain; charset=utf-8` and `X-Content-Type-Options: nosniff`.
+12. **CHG-047 smoke**: sign in, reload (still a member, one roster row), `/?login=1` as a member (no pane, param stripped), x and Esc on `/login`, then `/logout`.
 
 ## Local verification (done 2026-09-30)
 
-Environment: `node server.js` (Node 20.19.2) on http://localhost:3000 from an isolated copy of this tree, with its own users.json (two seeded test members) and `data/`. Settings: `WORLD_TOKEN_SECRET=dummy`, a 64-hex `MEMBER_TOKEN_SECRET`, SMTP unset (so no mail goes out; the pane says "Fail" but the code is still issued, which is the existing behaviour). Codes were read from the isolated users.json by the test harness. Nothing test-related is in the delivered files. Clients: socket.io-client 4 and headless Google Chrome 154 via puppeteer-core, installed in a separate test dir.
+Main (fe77ad8, "before") and this build ("after") were each run with `node server.js` on http://localhost:3000. Setup: isolated users.json and data, dummy `WORLD_TOKEN_SECRET`, `MEMBER_TOKEN_SECRET` and `XAI_API_KEY`, SMTP unset (codes read from the isolated users.json). The xAI call was stubbed through a test-only `node -r` preload that returns an HTML reply; the same preload optionally seeds `Math.random` for deterministic screenshots. Driven by headless Chrome 154 (puppeteer-core). `window.alert` was hooked on every page before load, and the counts are alert calls across observer and sender. "Injected elements" counts `img, script, svg, b, iframe, a` inside `#messages`, `#privLog`, `#whoList`, `#liveCard`, or the world page `.door`.
 
-| # | Test | Result |
+| Path / payload | Before (fe77ad8) | After (CHG-048) |
 |---|---|---|
-| S1 | guest joins with server-assigned name; browser-sent name ignored | PASS |
-| S2 | email-code sign-in issues claim; claim -> HttpOnly Secure SameSite=Lax 30-day cookie | PASS |
-| S3 | member reload: joins directly as member, one join line, no guest line, one roster row | PASS |
-| S4 | remembered member is authed: /whoami and /nest pass work; /nest namespace joins | PASS |
-| S5 | second tab: member again (one row per socket, as before); closing it removes its row | PASS |
-| S6 | pm2-style restart: same cookie still a member | PASS |
-| S7-tampered | bad cookie (tampered) -> quiet guest + member:stale + cleared by /api/member/logout | PASS |
-| S7-tamperedBody | bad cookie (tamperedBody) -> quiet guest + member:stale + cleared by /api/member/logout | PASS |
-| S7-expired | bad cookie (expired) -> quiet guest + member:stale + cleared by /api/member/logout | PASS |
-| S7-futureIat | bad cookie (futureIat) -> quiet guest + member:stale + cleared by /api/member/logout | PASS |
-| S7-wrongSecret | bad cookie (wrongSecret) -> quiet guest + member:stale + cleared by /api/member/logout | PASS |
-| S7-deletedUser | bad cookie (deletedUser) -> quiet guest + member:stale + cleared by /api/member/logout | PASS |
-| S7-garbage | bad cookie (garbage) -> quiet guest + member:stale + cleared by /api/member/logout | PASS |
-| S7-noToken | no cookie -> guest, no member:stale | PASS |
-| S8 | foreign Origin handshake with a valid cookie -> guest (cookie ignored); foreign-origin claim swap refused | PASS |
-| S9 | /logout: tokenVersion bumped, cookie cleared, the other browser's old cookie now rejected | PASS |
-| S10 | sign in again after /logout issues a cookie with the new version that works | PASS |
-| S11 | wrong-try limit: 4 wrong -> opaque reply; 5th -> code voided; right code then refused | PASS |
-| S12 | wrong-try counter is stored on the user record; a newly issued code resets it and signs in | PASS |
-| S13 | codes come from crypto.randomInt, 6 digits (sample of 20) | PASS |
-| S14 | public chat still works and reaches last5; commands/auth never do | PASS |
-| S15 | default logs + last5: no codes, no full emails, no tokens/claims | PASS |
-| S16 | AUTH_CODE_LOG=1 prints the code (email still masked) | PASS |
-| S17-unset | MEMBER_TOKEN_SECRET unset: one warning, no crash, code sign-in works as today, no claim, old cookie ignored (no stale) | PASS |
-| S17-short | MEMBER_TOKEN_SECRET short: one warning, no crash, code sign-in works as today, no claim, old cookie ignored (no stale) | PASS |
-| S18 | /world, /last5.txt, / still served | PASS |
-| B1 | guest page: required elements present; /login opens pane with visible x; x closes it; Esc closes it | PASS |
-| B2 | old 5 s auto-close timer no longer closes a pane reopened in the meantime | PASS |
-| B3 | ?login=1 as guest: pane opens; after sign-in the param is stripped; cookie HttpOnly+Secure+Lax, invisible to document.cookie | PASS |
-| B4 | member reload: still Tester047; one roster row; observer sees left+joined only, no Guest line; no pane | PASS |
-| B5 | ?login=1 as remembered member: no pane, param stripped (other params kept) | PASS |
-| B6 | new tab is a member too | PASS |
-| B7 | return visit: close Chrome completely, relaunch same profile -> still a member | PASS |
-| B8 | server restart (pm2-style): open page reconnects as member without reload | PASS |
-| B9 | tampered cookie (edited like in DevTools): quiet guest, no error text, cookie removed | PASS |
-| B10 | /logout signs out everywhere: this browser -> guest + cookie gone; second browser with its old cookie -> guest + cleared | PASS |
-| B11 | wrong-try limit in the UI: 5 wrong /auth -> "Too many wrong codes"; correct code then refused | PASS |
-| B12 | secret unset: code sign-in works, reload drops to guest exactly as today, ?login=1 guest pane still opens | PASS |
-| B13 | no page errors in any browser test | PASS |
+| Chat `<img src=x onerror=alert(1)>` | **EXECUTED** (2 alerts), 1 img per page | PASS: 0 alerts, 0 elements, literal |
+| Chat `<script>alert(1)</script>` | script element injected (innerHTML scripts don't run) | PASS: literal |
+| Chat `<svg onload=alert(1)>` | svg element injected (onload didn't fire via innerHTML in Chrome) | PASS: literal |
+| Chat `"><b>bold</b>` | `<b>` injected (rendered bold) | PASS: literal |
+| Chat `&amp;` / `&lt;` literal | decoded to `&` / `<` | PASS: literal |
+| Chat emoji + URL | shown | PASS: shown, identical |
+| Private pane echo (payloads 1-4) | **EXECUTED** (1 alert), 4 elements injected | PASS: 0 alerts, 0 elements, literal |
+| System line `/me <img ...>` | already safe (textContent) | PASS: literal |
+| Neagle reply with HTML (stubbed AI) | **EXECUTED** (2 alerts), elements injected | PASS: 0 alerts, 0 elements, literal |
+| Registered name with HTML: join line, chat line, roster | **EXECUTED** in the chat line (2 alerts); roster and join line already safe | PASS: 0 alerts, 0 elements, literal |
+| Name with HTML: Broadcast card "is live" label | already safe | PASS: literal |
+| Name with HTML: `/nest` output + world page handle and player list | already safe | PASS: literal |
+| Page errors | 0 | 0 |
 
-Totals: socket/HTTP 26/26, browser 13/13. Log scan over every default run (8 server logs): 0 full emails, 0 six-digit codes, 0 `mt1.` tokens, 0 `nest_member`. Screenshots: `shot-login-pane.png` (pane with the x), `shot-member-reload.png` (Tester047 after reload, one row, "Welcome to Milliway, Tester047").
+- **Visual comparison**: the same normal-chat session was run on before and after, with a seeded server RNG and CSS animations frozen. Messages included emoji, a flag, accents, CJK, a URL with `&`, `a < b && c > d`, `/me`, and a Neagle reply. The 1400x900 screenshots are **pixel-identical: 0 of 1,260,000 pixels differ** (pixelmatch, threshold 0). The rendered `innerHTML` of `#messages` and `#privLog` for normal input (including a private-pane session) is also **byte-identical** before vs after.
+- **CHG-047 regression** (the CHG-047 headless suite pointed at this build): 13/13 PASS. That covers member reload with one roster row, return visit, restart, tampered cookie, `/logout` everywhere, `?login=1` as member and as guest, x / Esc, the wrong-try limit, and secret unset.
+- **Screenshots**: `shot-before.png` and `shot-after.png` (normal chat, identical), and `shot-payloads-after.png` (the payloads in chat, a Neagle HTML reply, and the private-pane echoes, all literal).
 
 ## md5
 
 | File | md5 |
 |---|---|
-| server.js | 525883d158d91a5960b03d8ca67057b2 |
-| lib/memberToken.js | e91a41a40bb351e3542689e1fbf6e73e |
-| public/index.html | bbaeb0311f92ac23fe31d1768145d10e |
-| .env.example | 4eee068c316e3c397ba2878d5089b4c7 |
+| public/index.html | 453d450f95ef7f3e389adab55c7ecd7a |
 
-`md5sums.txt` also covers this file, `CHG-047.diff` and the screenshots (a file can't list its own md5).
+`md5sums.txt` covers every delivered file, including this one, the diff and the screenshots.
 
-## Remaining risks
+## Remaining risks (not in this CHG)
 
-- The chat `innerHTML` XSS remains until CHG-048. The cookie can't be stolen, but a malicious chat line can act as a signed-in member while their page is open.
-- Anyone can still make the server email a code to any member's address (pre-existing). Each code now allows only 5 guesses, but there is no rate limit on requesting codes, so it's a nuisance-mail vector with about 5 in 900,000 guess odds per code.
-- Logout doesn't disconnect other already-open tabs until they reconnect.
-- The secret lives only in the VPS `.env`. If it's lost, everyone signs in again (nothing breaks).
+- Registration accepts any name, including HTML, "Neagle" (which gets the gold Neagle styling), or very long names. This is now harmless for XSS but still allows impersonation. A server-side username rule would be a separate small CHG.
+- No Content-Security-Policy on the main page (the inline scripts would need nonces). It would be defence in depth, not needed for this fix.
+- Express shows stack traces on malformed JSON unless `NODE_ENV=production` is set in pm2. That is information disclosure, not XSS.
