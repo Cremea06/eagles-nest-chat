@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { createLast5 } = require('./lib/last5');
 const memberToken = require('./lib/memberToken');
+const usernameRule = require('./lib/username'); // CHG-051
 
 const app = express();
 const server = http.createServer(app);
@@ -378,6 +379,12 @@ function handleRegistrationInput(socket, text) {
   if (socket.reg.step === 'awaiting_confirm') {
     const answer = text.toLowerCase();
     if (answer === 'yes' || answer === 'y') {
+      const nameCheck = usernameRule.check(username); // CHG-051
+      if (!nameCheck.ok) {
+        clearReg(socket);
+        socket.emit('system', nameCheck.reason);
+        return true;
+      }
       if (findUserByEmail(socket.reg.email) || findUserByName(username)) {
         clearReg(socket);
         socket.emit('system', 'That account already exists.');
@@ -886,12 +893,20 @@ io.on('connection', (socket) => {
     }
 
     if (socket.priv.kind === 'register' && socket.priv.step === 'username') {
-      if (text.length < 2 || isGuestName(text) || findUserByName(text)) {
+      // CHG-051 — normalized; the reason goes to the pane. Owner-only names (andy) wait for the email step.
+      const nameCheck = usernameRule.check(text);
+      if (!nameCheck.ok && !nameCheck.ownerOnly) {
+        socket.emit('priv:result', { ok: false, text: 'Fail. ' + nameCheck.reason + ' Closing in 5 seconds' });
+        socket.priv = null;
+        return;
+      }
+      const name = nameCheck.name;
+      if (isGuestName(name) || findUserByName(name)) {
         socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
         socket.priv = null;
         return;
       }
-      socket.priv.username = text;
+      socket.priv.username = name;
       socket.priv.step = 'email';
       socket.emit('priv:line', { from: 'SERVER', text: 'Enter email.' });
       return;
@@ -899,6 +914,12 @@ io.on('connection', (socket) => {
 
     if (socket.priv.kind === 'register' && socket.priv.step === 'email') {
       const email = text.toLowerCase();
+      const ownerCheck = usernameRule.check(socket.priv.username, { email }); // CHG-051 — owner-only names need the owner's email
+      if (!ownerCheck.ok) {
+        socket.emit('priv:result', { ok: false, text: 'Fail. ' + ownerCheck.reason + ' Closing in 5 seconds' });
+        socket.priv = null;
+        return;
+      }
       if (!isValidEmail(email) || findUserByEmail(email) || findUserByName(socket.priv.username)) {
         socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
         socket.priv = null;
