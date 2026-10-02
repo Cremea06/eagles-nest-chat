@@ -11,6 +11,8 @@ const crypto = require('crypto');
 const { createLast5 } = require('./lib/last5');
 const memberToken = require('./lib/memberToken');
 const usernameRule = require('./lib/username'); // CHG-051
+const states = require('./lib/states'); // CHG-055
+const { createRepThrottle } = require('./lib/repThrottle'); // CHG-055
 
 const app = express();
 const server = http.createServer(app);
@@ -174,6 +176,29 @@ function findUserByName(username) {
   return registeredUsers.find(u => String(u.username).toLowerCase() === key);
 }
 
+// CHG-055 /rep: a member's state is its own field on the users.json record (user.rep, e.g. 'WV').
+// The stored username never changes; the room shows '<STATE> <name>' (e.g. 'WV Andy'). Guests never have one.
+function repOf(user) {
+  return user ? states.normalize(user.rep) : null;
+}
+
+function withRep(user, name) {
+  const code = repOf(user);
+  return code ? code + ' ' + name : name;
+}
+
+// Name the room sees for a socket, without the flagholder tag (presence, joined/left lines).
+function roomName(socket) {
+  const name = String(socket.username || '');
+  return isRegisteredAuthed(socket) ? withRep(findUserByName(name), name) : name;
+}
+
+// Name the room sees for a socket, with the flagholder tag (chat lines, /me, /who, welcome).
+function shownName(socket) {
+  const name = roomName(socket) || 'Anonymous';
+  return socket.isFlagholder ? `${name} (flagholder)` : name;
+}
+
 function findUserByEmail(email) {
   const key = String(email || '').toLowerCase();
   return registeredUsers.find(u => String(u.email).toLowerCase() === key);
@@ -204,8 +229,7 @@ function handleCommand(socket, msg) {
   const command = parts[0].toLowerCase();
   const args = parts.slice(1);
 
-  const username = socket.username || 'Anonymous';
-  const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+  const displayName = shownName(socket); // CHG-055: state prefix for members with /rep
 
   if (command === '/help' || command === '/?') {
     const helpText = [
@@ -218,7 +242,8 @@ function handleCommand(socket, msg) {
       '/whoami              - Your account status',
       '/logout              - Sign out on every device',
       '/mute <username>     - Mute a user (temporary)',
-      '/nest                - Mint a Nest World pass (registered members)'
+      '/nest                - Mint a Nest World pass (registered members)',
+      '/rep <STATE>         - Show your US state before your name, e.g. /rep WV (members)'
     ].join('\n');
     socket.emit('system', helpText);
     return true;
@@ -238,8 +263,7 @@ function handleCommand(socket, msg) {
     const users = [];
     for (const [, s] of io.of('/').sockets) {
       if (s.username) {
-        const name = s.isFlagholder ? `${s.username} (flagholder)` : s.username;
-        users.push(name);
+        users.push(shownName(s)); // CHG-055
       }
     }
     const list = users.length > 0 ? users.join(', ') : 'No one else is here.';
@@ -352,8 +376,60 @@ function handleCommand(socket, msg) {
     return true;
   }
 
+  if (command === '/rep') { // CHG-055
+    handleRep(socket, args);
+    return true;
+  }
+
   socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
   return true;
+}
+
+// CHG-055 /rep <STATE>: signed-in members only. Every reply goes to the sender only, except the
+// success line, which goes to the whole room as a system line (same style as "X joined the chat").
+// Anyone may claim any state; a new /rep switches it; there is no way to clear it.
+// Throttle per account (all tabs together): 10 free switches per rolling 1 minute, then one per 60 s (lib/repThrottle.js).
+const repThrottle = createRepThrottle();
+
+function handleRep(socket, args) {
+  const user = isRegisteredAuthed(socket) ? findUserByName(socket.username) : null;
+  if (!user) {
+    socket.emit('system', 'Only signed-in members can use /rep. Type /login to sign in first.');
+    return;
+  }
+  const current = repOf(user);
+  if (args.length !== 1) {
+    socket.emit('system', 'Usage: /rep <STATE> with a 2-letter US state, e.g. /rep WV. You can switch states but not clear one.' +
+      (current ? ' You are shown as ' + withRep(user, user.username) + '.' : ''));
+    return;
+  }
+  const code = states.normalize(args[0]);
+  if (!code) {
+    socket.emit('system', 'Unknown state. Use one of the 50 US state abbreviations, e.g. /rep WV.');
+    return;
+  }
+  if (code === current) {
+    socket.emit('system', 'You already represent ' + states.nameOf(code) + '.');
+    return;
+  }
+  const key = String(user.username).toLowerCase();
+  if (repThrottle.waitSeconds(key) > 0) {
+    socket.emit('system', 'A double-minded man is unstable in his ways'); // Andy's exact wording, no countdown
+    return;
+  }
+  repThrottle.record(key);
+  user.rep = code;
+  saveUsers(registeredUsers);
+  console.log('[rep]', user.username, code);
+  io.emit('system', `Republican Chapster from ${states.nameOf(code)} will now be recognized ${user.username}`);
+  // presence: every Milliway tab of this member now shows the prefix
+  for (const [, s] of io.of('/').sockets) {
+    if (milliwayPresence.has(s.id) && isRegisteredAuthed(s) && String(s.username || '').toLowerCase() === key) {
+      const pUser = presenceUser(s);
+      milliwayPresence.set(s.id, pUser);
+      io.emit('presence:update', { user: pUser });
+    }
+  }
 }
 
 function handleRegistrationInput(socket, text) {
@@ -473,6 +549,7 @@ app.post('/api/member/logout', (req, res) => {
 // CHG-049 — GET/OPTIONS /api/member/me: {member:true,name} or {member:false}. Pure read: no writes,
 // no Set-Cookie (a stale cookie is just "not a member"), no logging. CORS headers only for the
 // exact homepage origins; other foreign origins get {member:false} without the cookie being read.
+// CHG-055: members also get rep ('WV' or null) and display ('WV Andy', or just the name with no state).
 function memberMe(req, res) {
   const origin = req.get('origin');
   const home = !!origin && MEMBER_ME_ORIGINS.has(origin);
@@ -485,7 +562,7 @@ function memberMe(req, res) {
     return res.status(204).end();
   }
   const { user } = (home || memberOriginOk(origin)) ? readMember(req.get('cookie')) : {};
-  res.json(user ? { member: true, name: user.username } : { member: false });
+  res.json(user ? { member: true, name: user.username, rep: repOf(user), display: withRep(user, user.username) } : { member: false });
 }
 
 
@@ -762,7 +839,7 @@ function isGuestName(name) {
 const milliwayPresence = new Map();
 
 function presenceUser(socket) {
-  return { id: socket.id, name: String(socket.username || ''), guest: !!socket.isGuest };
+  return { id: socket.id, name: roomName(socket), guest: !!socket.isGuest }; // CHG-055: 'WV Andy' for a member with a state
 }
 
 function presenceSync(socket) {
@@ -828,7 +905,7 @@ io.on('connection', (socket) => {
     socket.isFlagholder = isFlagholder;
     clearReg(socket);
 
-    const displayName = isFlagholder ? `${username} (flagholder)` : username;
+    const displayName = shownName(socket); // CHG-055: state prefix for members with /rep
 
     socket.emit('joined', { username });
     if (socket.data.memberStale) {
@@ -1006,7 +1083,7 @@ io.on('connection', (socket) => {
 
     socket.emit('joined', { username: socket.username });
     socket.emit('system', 'Complete.');
-    socket.broadcast.emit('system', `${socket.username} has joined the chat`);
+    socket.broadcast.emit('system', `${roomName(socket)} has joined the chat`); // CHG-055: state prefix
     console.log('[auth ok]', oldName, '->', socket.username);
 
     // CHG-047 — one-time claim (60 s); the page swaps it for the HttpOnly cookie.
@@ -1056,7 +1133,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const displayName = socket.isFlagholder ? `${username} (flagholder)` : username;
+    const displayName = shownName(socket); // CHG-055: 'WV Andy' for a member with a state
 
     io.emit('chat message', {
       username: displayName,
@@ -1138,7 +1215,7 @@ io.on('connection', (socket) => {
       socket.broadcast.emit('system', live.username + ' ended the live stream');
     }
     if (socket.username) {
-      socket.broadcast.emit('system', socket.username + ' left the chat');
+      socket.broadcast.emit('system', roomName(socket) + ' left the chat'); // CHG-055: state prefix
     }
     // CHG-036 — presence: remove this socket
     if (milliwayPresence.delete(socket.id)) {
