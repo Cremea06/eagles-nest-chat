@@ -13,6 +13,7 @@ const memberToken = require('./lib/memberToken');
 const usernameRule = require('./lib/username'); // CHG-051
 const states = require('./lib/states'); // CHG-055
 const { createRepThrottle } = require('./lib/repThrottle'); // CHG-055
+const editMode = require('./lib/editMode'); // CHG-058
 
 const app = express();
 const server = http.createServer(app);
@@ -430,6 +431,88 @@ function handleRep(socket, args) {
       io.emit('presence:update', { user: pUser });
     }
   }
+  editModeRefresh(); // CHG-058: the EDIT MODE tooltip lists shown names
+}
+
+// CHG-058 "Neagle go into edit mode": a scripted flow run by the server. Neagle's AI is never called for it and
+// the token counter does not move. Per socket: socket.edit = { step: 'confirm' | 'code', at } while a reply is
+// pending, socket.editWrong (wrong codes), socket.editMode (true once the code was accepted, until disconnect).
+// Room sees: the trigger and the confirm reply as normal lines, the ALERT system line, Neagle's scripted lines.
+// The code attempt goes back to the sender only (never broadcast, never in last5.txt, never logged).
+const editCodeOk = editMode.createCodeCheck(editMode.resolveCodeHash(process.env.EDIT_MODE_CODE_SHA256, console.warn));
+
+function neagleSay(text) {
+  io.emit('chat message', { username: 'Neagle', message: text });
+  last5.record('Neagle', text); // same as a normal Neagle line
+}
+
+// A normal public human line (room + last5.txt).
+function postHumanLine(socket, msg) {
+  const displayName = shownName(socket); // CHG-055: 'WV Andy' for a member with a state
+  io.emit('chat message', { username: displayName, message: msg });
+  last5.record(displayName, msg); // CHG-044: public human line
+}
+
+// -> true when the message was handled here (the caller must not broadcast it or ask Neagle).
+function handleEditFlow(socket, text, msg) {
+  if (socket.edit && Date.now() - socket.edit.at > editMode.PENDING_MS) socket.edit = null; // silent reset
+  const step = socket.edit ? socket.edit.step : '';
+  const name = roomName(socket) || 'Anonymous';
+
+  if (step === 'confirm') { // whatever the reply says, it is shown normally
+    postHumanLine(socket, msg);
+    io.emit('system', 'ALERT ' + name.toUpperCase() + ' HAS TRIGGERED THE EDIT MODE');
+    neagleSay("What's the code?");
+    socket.edit = { step: 'code', at: Date.now() };
+    return true;
+  }
+
+  if (step === 'code') {
+    socket.edit = null;
+    socket.emit('chat message', { username: shownName(socket), message: msg }); // sender only
+    if (editCodeOk(text)) {
+      socket.editMode = true;
+      console.log('[editmode] on', socket.username);
+      neagleSay('code accepted');
+      editModeRefresh();
+    } else {
+      socket.editWrong = (socket.editWrong || 0) + 1;
+      console.log('[editmode] wrong code', socket.username, socket.editWrong + '/' + editMode.MAX_WRONG);
+      neagleSay('code rejected');
+    }
+    return true;
+  }
+
+  if (!editMode.isTrigger(text)) return false;
+  postHumanLine(socket, msg); // the trigger itself is a normal line
+  if (socket.editMode) {
+    socket.emit('system', 'You are already in edit mode.');
+    return true;
+  }
+  if ((socket.editWrong || 0) >= editMode.MAX_WRONG) {
+    socket.emit('system', 'Edit mode locked.');
+    return true;
+  }
+  socket.edit = { step: 'confirm', at: Date.now() };
+  neagleSay('Are you sure ' + name + '?');
+  return true;
+}
+
+// -> { on, names }: on while at least one connected Milliway socket is in edit mode; names = shown names (unique).
+function editModeState() {
+  const names = new Set();
+  for (const [, s] of io.of('/').sockets) {
+    if (s.editMode && s.connected) names.add(roomName(s) || 'Anonymous');
+  }
+  return { on: names.size > 0, names: Array.from(names) };
+}
+
+let editModeWasOn = false;
+// Push the state to the whole room when edit mode is on, or when it just went off.
+function editModeRefresh() {
+  const state = editModeState();
+  if (state.on || editModeWasOn) io.emit('editmode:state', state);
+  editModeWasOn = state.on;
 }
 
 function handleRegistrationInput(socket, text) {
@@ -927,6 +1010,7 @@ io.on('connection', (socket) => {
     milliwayPresence.set(socket.id, pUser);
     socket.broadcast.emit(wasPresent ? 'presence:update' : 'presence:join', { user: pUser });
     presenceSync(socket);
+    socket.emit('editmode:state', editModeState()); // CHG-058: EDIT MODE header for newcomers
   });
 
   socket.on('priv:open', (data = {}) => {
@@ -1100,6 +1184,7 @@ io.on('connection', (socket) => {
       milliwayPresence.set(socket.id, pUser);
       io.emit('presence:update', { user: pUser });
     }
+    if (socket.editMode) editModeRefresh(); // CHG-058: same socket, new shown name
   });
 
   socket.on('chat message', async (msg) => {
@@ -1133,13 +1218,9 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const displayName = shownName(socket); // CHG-055: 'WV Andy' for a member with a state
+    if (handleEditFlow(socket, text, msg)) return; // CHG-058: scripted edit-mode flow, no AI call
 
-    io.emit('chat message', {
-      username: displayName,
-      message: msg
-    });
-    last5.record(displayName, msg); // CHG-044 — public human line
+    postHumanLine(socket, msg);
 
     const lowerMsg = text.toLowerCase();
     const isMentioned = lowerMsg.includes('@neagle') ||
@@ -1220,6 +1301,13 @@ io.on('connection', (socket) => {
     // CHG-036 — presence: remove this socket
     if (milliwayPresence.delete(socket.id)) {
       socket.broadcast.emit('presence:leave', { id: socket.id });
+    }
+    // CHG-058: edit mode ends with the connection
+    socket.edit = null;
+    if (socket.editMode) {
+      socket.editMode = false;
+      console.log('[editmode] off (disconnect)', socket.username);
+      editModeRefresh();
     }
   });
 });

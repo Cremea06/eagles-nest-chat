@@ -136,6 +136,21 @@
       white-space: nowrap;
     }
 
+    /* CHG-058: EDIT MODE flag between the title and the Neagle pill (shown to everyone while anyone is in edit mode) */
+    #editModeChip {
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: #fff;
+      background: #c41e3a;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 999px;
+      padding: 0.35rem 0.7rem;
+      white-space: nowrap;
+    }
+    #editModeChip[hidden] { display: none; }
+    #chat > h2 { flex-wrap: wrap; row-gap: 8px; } /* narrow screens: the pill drops to a second row instead of overflowing */
+
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -516,6 +531,7 @@
   <div id="chat" class="glass">
     <h2>
       Milliway
+      <span id="editModeChip" hidden>EDIT MODE</span>
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
     </h2>
     <div id="messages"></div>
@@ -938,6 +954,22 @@
       if (!chip) return;
       chip.textContent = 'Neagle: ' + data.tokens + ' tok / ' + data.calls + ' calls';
     });
+
+    // CHG-058: EDIT MODE header flag: server-authoritative ({ on, names }); plain text only
+    (function () {
+      var chip = document.getElementById('editModeChip');
+      if (!chip) return;
+      socket.on('editmode:state', function (data) {
+        var on = !!(data && data.on);
+        var names = data && Array.isArray(data.names) ? data.names.map(String) : [];
+        chip.hidden = !on;
+        chip.title = on && names.length ? 'In edit mode: ' + names.join(', ') : '';
+      });
+      socket.on('disconnect', function () {
+        chip.hidden = true;
+        chip.title = '';
+      });
+    })();
 
     socket.on('chat message', (data) => {
       const div = document.createElement('div');

@@ -1,83 +1,83 @@
-# CHG-055: /rep <STATE> chat command (state tag before a member's name) and the homepage pill
+# CHG-058: "Neagle go into edit mode" (scripted Neagle flow, secret code, EDIT MODE flag in the header)
 
-Nest/Milliway repo (Cremea06/eagles-nest-chat) plus one line in the Shop (Cremea06/afirstflag, see the Shop note below).
+Nest/Milliway repo (Cremea06/eagles-nest-chat) only. No Shop change.
 DRAFT, prepared 2026-10-02 on the deliberate track: not committed, not pushed, not deployed. Andy tests first.
 
 ## Base
 
 - Repo: https://github.com/Cremea06/eagles-nest-chat, branch `main`
-- Base SHA: `6a1002d` ("CHG-053: CHANGES.md write-up").
+- Base SHA: `3bc7050` ("CHG-055: /rep state tag with throttle").
 - Commit: none yet (fill in after Andy approves and commits).
 
 ## What changed
 
 | File | Change | +/- |
 |---|---|---|
-| `lib/states.js` (new) | The 50 US states: standard 2-letter USPS codes and full names. No DC, no territories. `normalize(raw)` returns the uppercase code or null (case-insensitive, surrounding spaces ignored); `nameOf(code)` returns the full name or null. | +28 / -0 |
-| `lib/repThrottle.js` (new) | Per-account /rep throttle, in memory. `createRepThrottle(now)` with an injectable clock (for tests); `waitSeconds(key)` and `record(key)`. | +41 / -0 |
-| `server.js` | `/rep` command, the throttle, the `rep` field on the member record, the shown name "WV Andy" in the room, and two new fields on `/api/member/me`. | +88 / -11 |
+| `lib/editMode.js` (new) | Trigger match, the code check (SHA-256 only, no plaintext code), the 2-minute timeout and the 5-try limit. | +40 / -0 |
+| `server.js` | The scripted flow (`handleEditFlow`), the per-socket edit mode, and the `editmode:state` event to the room and to newcomers. The normal chat path now posts through a small `postHumanLine` helper (same output as before). | +94 / -6 |
+| `public/index.html` | `EDIT MODE` flag in the header between the "Milliway" title and the Neagle pill, driven by `editmode:state`. The header row may wrap on narrow screens. | +32 / -0 |
+| `.env.example` | Optional `EDIT_MODE_CODE_SHA256` (blank by default). | +4 / -0 |
 
-**The command**
-- `/rep WV` (any case, e.g. `/rep wv`, `/REP Wv`). The code is stored and shown in uppercase.
-- Only a signed-in member can use it: a socket that resumed from a valid `nest_member` cookie, or that finished `/auth` on this page, and whose account is in users.json. Guests and sockets that are halfway through /login get a private line: `Only signed-in members can use /rep. Type /login to sign in first.` Nothing goes to the room and nothing is saved.
-- `/rep` with no state, or with more than one word (e.g. `/rep West Virginia`): private usage hint, `Usage: /rep <STATE> with a 2-letter US state, e.g. /rep WV. You can switch states but not clear one.` If a state is already set, it adds `You are shown as WV Andy.`
-- Anything that is not one of the 50 codes (DC, PR, `none`, `XX`, `wva`...): private `Unknown state. Use one of the 50 US state abbreviations, e.g. /rep WV.` The typed text is not echoed back.
-- The same state again: private `You already represent West Virginia.` and no new room line.
-- Throttle (per member account, all tabs and devices together, not per socket): the first 10 successful switches in a rolling 1-minute window go through freely. After the 10th, further switches are limited to one per 60 seconds until the window clears. A throttled attempt gets only this private line, exactly:
-  `A double-minded man is unstable in his ways`
-  No countdown is shown. Nothing is saved and nothing goes to the room. Same-state re-claims, usage hints and unknown states are answered as above and do not count. Every successful switch counts, including the first claim. The tracking is in memory only and resets when the server restarts.
-- A valid new state: saved to users.json, then the whole room (including the sender) gets this system line, spelled exactly as Andy asked, with the intentional "Chapster":
-  `Republican Chapster from West Virginia will now be recognized Andy`
-  The name at the end is the stored username (no prefix).
-- Anyone may claim any state; there is no check. A member can switch at any time with another `/rep`. There is no way to clear a state (no `/rep none`).
+**Trigger**
+- Anyone in Milliway (guest or member) sends `Neagle go into edit mode`. Any case, any run of spaces between the words, and trailing punctuation or spaces are fine (`neagle   GO into edit mode!!`). Other wording is not a trigger (for example `@Neagle go into edit mode`, `Neagle, go into edit mode`, `hey Neagle go into edit mode`, or extra words after it); those stay normal messages.
+- The trigger is shown to the room as a normal chat line (and goes into last5.txt like any public line).
 
-**Message delivery and sender label**
-- Private replies use the existing `system` event on the sender's socket only, like every other command reply (/help, /whoami, /mute usage).
-- The success line uses `io.emit('system', ...)`: the centered, italic system line the room already uses for "X joined the chat", "X went live" and "* X waves". It has no sender label, so the text reads exactly as specified. It is not written to last5.txt (system lines never were).
+**Flow (run by the server; Neagle's AI is never called, the token pill does not move)**
+1. Neagle (room): `Are you sure <name>?` with the shown name, e.g. `Are you sure WV Andy?` or `Are you sure Guest-User 1234?`.
+2. The same socket's next chat message, whatever it says, is shown to the room as a normal line. Then a system line to the whole room: `ALERT <NAME> HAS TRIGGERED THE EDIT MODE` with the shown name in uppercase (`ALERT WV ANDY HAS TRIGGERED THE EDIT MODE`). Then Neagle (room): `What's the code?`
+3. The same socket's next chat message is the code attempt. It is never broadcast: only the sender sees it, as their own chat line. It is not written to last5.txt and not logged. The server compares it, trimmed and lowercased, against a SHA-256 hash (constant-time compare).
+   - Right: Neagle (room) `code accepted`, and that socket enters edit mode.
+   - Wrong: Neagle (room) `code rejected`. The flow ends; the next message is a normal line again.
+- Neagle's scripted lines are ordinary `chat message` events with sender `Neagle`, so they look exactly like normal Neagle replies (gold name). They are written to last5.txt like normal Neagle lines. The ALERT is a system line, so like every system line it is not in last5.txt.
+- Slash commands (`/who`, `/help`, ...) keep working during the flow and do not count as the reply.
+- The existing mute rule applies first: a muted user cannot trigger or answer.
 
-**Where the state is stored**
-- A new optional field `rep` (for example `"rep": "WV"`) on the member's users.json record. `username` is never changed, so login, /auth, the 30-day cookie, /nest, /mute and the CHG-051 name rules all keep using the plain name.
-- Because it lives on the record, it survives a page refresh, a reconnect, a server restart, /logout and a fresh sign-in.
-- The value is checked against lib/states.js every time it is read, so a bad hand edit in users.json shows no prefix instead of junk.
+**Limits and timeout (per socket, in memory)**
+- 5 wrong codes on one socket, then that socket's trigger is refused: the trigger line is still shown, and the sender alone gets the system line `Edit mode locked.` No Neagle line.
+- A pending step with no reply for 2 minutes is dropped silently. The next message is then a normal line.
+- Typing the trigger while already in edit mode: the trigger is shown, and the sender alone gets `You are already in edit mode.`
+- Pending state, the wrong-code count and edit mode belong to that one socket (browser tab connection). Another tab of the same person is not affected.
 
-**Where "WV Andy" shows**
-- Chat lines (`chat message` username), `/me` lines, `/who`, the welcome line, "joined the chat", "has joined the chat" after /auth, "left the chat", and the Who's here roster.
-- After a successful `/rep`, a `presence:update` goes out for every open Milliway tab of that member, so the roster changes at once without a reload.
-- A flagholder keeps the tag after the name, e.g. `WV Andy (flagholder)`.
-- The `joined` event to the member's own page still carries the plain username (the page uses it to tell guest from member for ?login=1). Neagle is still addressed with the plain username.
-- All of it is still plain text: the page renders names and messages with textContent (CHG-048), unchanged.
+**Edit mode**
+- Lasts until that socket disconnects (tab closed, page refresh, network drop, or Socket.IO's own ping timeout). It survives /login + /auth on the same tab. It gives no other powers: every command and rule works exactly as before.
+- Nothing is saved: no users.json field, no file.
 
-**`GET /api/member/me` (additive)**
-- Member: `{"member":true,"name":"Andy","rep":"WV","display":"WV Andy"}`. A member without a state gets `"rep":null` and `"display"` equal to the name.
-- Not a member: `{"member":false}`, unchanged.
-- CORS, Vary, Cache-Control, OPTIONS handling, the origin list and the no-write/no-cookie behaviour are unchanged. Old consumers that read `member` and `name` see the same values.
+**EDIT MODE flag in the header**
+- The server sends `editmode:state` `{ on, names }` to the whole room whenever it changes (someone enters edit mode, or an edit-mode socket disconnects), and to each newcomer on join. `on` is true while at least one connected socket is in edit mode; `names` are their shown names (no duplicates).
+- The page shows `EDIT MODE` between the title and the Neagle pill while `on` is true, for everyone in the room. The tooltip reads `In edit mode: WV Andy` (shown names, comma separated). When the last edit-mode socket disconnects, the flag disappears for everyone. A page that loses its connection hides the flag until it rejoins.
+- Names in the tooltip update after `/rep` or a sign-in on an edit-mode tab.
+- Text only (textContent and title), per CHG-048.
 
-**/help** lists one new line: `/rep <STATE>         - Show your US state before your name, e.g. /rep WV (members)`.
+**The code**
+- The code is not in this repo in plaintext. `lib/editMode.js` holds only the SHA-256 of the trimmed, lowercased code.
+- To change it without a code change, set `EDIT_MODE_CODE_SHA256` in `.env` to the SHA-256 (64 hex chars) of the new code, lowercased and trimmed, then restart. A value that is not 64 hex chars is ignored with a warning in the log, and the built-in hash stays in use.
+
+**Server log**
+- `[editmode] on <username>`, `[editmode] wrong code <username> N/5`, `[editmode] off (disconnect) <username>`. Never the attempt text.
 
 ## What did not change
 
-- `public/index.html` (the chat page), `lib/username.js`, `lib/memberToken.js`, `lib/last5.js`, `package.json`, `package-lock.json`, `.env.example`. No new dependency, no env change.
-- CHG-051 name rules, the cookie format, /login, /auth, /logout, /nest, /mute matching (still by plain username), Neagle, /last5.txt route.
-- Go live / end live lines and the Broadcast card still use the plain username.
-
-## Shop note (afirstflag.com)
-
-One line in `index.html` (base `b2ea92e`, live md5 f0c058b3): the Signed in pill now uses `display` when it is a non-empty string, otherwise `name` as before. Result: `Signed in: WV Andy`. Same single fetch, same textContent. Either side can ship first: the old Shop page ignores the new fields, and the new Shop page falls back to `name` against an old Nest.
+- Neagle's normal replies (mentions and the 12% random join), the token counter, the system prompt and the model call.
+- /rep and its throttle, /nest, /login, /auth, /logout, the member cookie, /api/member/me, CHG-051 name rules, /mute, /who, /help text, presence roster, live broadcast, /last5.txt route.
+- `lib/last5.js`, `lib/states.js`, `lib/repThrottle.js`, `lib/username.js`, `lib/memberToken.js`, `package.json`, `package-lock.json`. No new dependency. No users.json migration.
 
 ## VPS steps (after Andy approves)
 
-1. On the laptop: commit `lib/states.js`, `lib/repThrottle.js`, `server.js` and this `CHANGES.md`, then `git push origin main`.
-2. On the VPS: `git pull`, then `pm2 restart "Eagles Nest"`.
-3. No env change. users.json needs no migration (members without `rep` simply show no prefix).
+1. On the laptop: commit `lib/editMode.js`, `server.js`, `public/index.html`, `.env.example` and this `CHANGES.md`, then `git push origin main`.
+2. On the VPS, in `~/chat-app`: `git pull && pm2 restart "Eagles Nest"`.
+3. No env change needed (the built-in hash is used). No npm install.
 
 ## Checks (done 2026-10-02 on the box, local test server only)
 
-- Server test (socket.io client against a local copy, 62/62 PASS): guest and mid-login sockets blocked privately; no-arg and two-word usage hint; DC, PR, none, XX, wva, markup rejected privately; exact West Virginia and Texas lines; switch; same-state note; cannot clear; users.json `rep` saved with username unchanged; chat, /me, /who, welcome, joined, left and roster show the prefix; both tabs of one member update; reconnect, server restart, /logout plus fresh sign-in all keep the state; `/api/member/me` new fields, and CORS/status/cache headers identical to base for 5 origin and cookie cases (GET and OPTIONS). Throttle (unit tests with an injected clock, plus end to end with a test-only clock preload that moves Date.now): 10 free switches; the 11th inside the minute gets exactly `A double-minded man is unstable in his ways` privately, with no room line, no roster update and nothing saved; still throttled 30 s later; allowed again after 60 s; window reset after 1 minute (10 free again, then throttled); same-state re-claims do not count; per account across two tabs (5 + 5, then both tabs throttled); another account unaffected; a restart clears it.
-- Headless Chrome through a local HTTPS front (12/12 PASS): the room line and "WV Andy" chat line and roster render; markup in a name and message stays text and no script runs; reload keeps "WV Andy"; homepage pill "Signed in: WV Andy" on afirstflag.com and www; signed out shows Guest User with no pill; old Shop page with new Nest shows "Signed in: Andy"; new Shop page with old Nest shows "Signed in: Andy".
+- Server tests (socket.io client against a local copy, with a test-only stand-in for the AI that records every call): 54/54 PASS. Covers the trigger variants, the exact lines and their order for the room and for the sender, the code attempt never reaching anyone else or last5.txt or the log, no AI call and no usage event during the flow, the 5-try lock, the 2-minute timeout (test-only clock), per-socket state, the header state on enter, on join and on disconnect, sign-in and /rep in edit mode, markup names as plain text, mute, the env override, and a base 3bc7050 reference run.
+- The CHG-055 server suite run unchanged against this build: 62/62 PASS.
+- Headless Chrome through a local HTTPS front: 18/18 PASS. The full flow as seen by the sender and by a guest, EDIT MODE between the title and the pill (also at 390 px wide), tooltip, newcomer sees it, it disappears after a refresh or a closed tab, the pill only moves for a real Neagle reply, no markup rendered, no page errors.
 
 ## Risks and notes
 
-- Accepted by Andy (2026-10-02): CHG-051 does not reserve names shaped like "WV Andy", so a new account could pick such a name and look like a member with a state. The CHG-051 rules stay unchanged.
-- /rep is unverified on purpose: anyone may claim any state.
-- Throttle: with a 1-minute window and a 60-second gap, the gap never ends later than the window frees a slot, so in practice the limit is 10 switches in any 60 seconds per account. A member can still send up to 10 room lines a minute. The throttle resets on a server restart.
-- Tier (CONTRIBUTING.md): Locked, because /rep writes users.json. It is listed in /help as the Open rules ask.
+- The code is short and a common word. A SHA-256 of it can be reversed by a dictionary or brute-force guess in well under a second, so the hash keeps it out of casual reading of the public repo, not out of reach of a determined reader. For a real secret, set `EDIT_MODE_CODE_SHA256` to the hash of a long random code.
+- The 5-try lock is per socket as specified. A page refresh gives a fresh socket and 5 more tries. Each try takes 3 messages, and the room sees every ALERT and "code rejected", so brute force is loud, but it is not blocked.
+- If the 2-minute timeout passes after "What's the code?", the next message is a normal public line. A user who types the code late would post it to the room.
+- Anyone can trigger the flow, and every trigger puts 2 to 4 lines in front of the room (a mild spam vector, similar to normal chat).
+- Edit mode does nothing yet besides the header flag.
+- Tier (CONTRIBUTING.md): Locked, because it speaks as Neagle (AI) and checks a secret.
