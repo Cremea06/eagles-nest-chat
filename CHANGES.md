@@ -1,67 +1,46 @@
-# CHG-051: one server-side username rule for new registrations
+# CHG-053: publish the offline chatroom script and README section
 
-Nest/Milliway only (chat.afirstflag.com, repo Cremea06/eagles-nest-chat). Shop untouched.
-On main as `ce97464` ("CHG-051 name rules"), 2026-09-30. CHANGES.md was not updated in that commit; this write-up is added afterwards.
+Nest/Milliway repo, docs and tools only (repo Cremea06/eagles-nest-chat). No server change. Shop untouched.
+On main as `0d8b717` ("CHG-053 offline-chatroom"), 2026-09-30. CHANGES.md was not updated in that commit; this write-up is added afterwards.
 
 ## Base
 
 - Repo: https://github.com/Cremea06/eagles-nest-chat, branch `main`
-- Base SHA: `0e11ad2b75617f82c3bbfd8211c491a4ebab185a` ("CHG-049: adding server.js").
-- Commit: `ce974649a48b7c0ab20fe8883bd933bc5b3697b8`.
+- Base SHA: `ce974649a48b7c0ab20fe8883bd933bc5b3697b8` ("CHG-051 name rules").
+- Commit: `0d8b7171b2a372e4855b8d3f55b606af0b2d60c6`.
 
 ## What changed
 
 | File | Change | +/- |
 |---|---|---|
-| `lib/username.js` (new) | The shared validator. `check(raw, {email, serverGenerated})` returns `{ok:true, name}` (the normalized name) or `{ok:false, reason}` (plain text for the user). Also exports `normalize`, `fold`, `reservedKey`, `RESERVED`, `MIN`, `MAX`. | +83 / -0 |
-| `server.js` | Requires the rule. Applies it at the private-pane `/register` **name step**, checks owner-only names at the **email step** (the Andy gate), and guards the legacy chat-registration confirm step (unreachable since CHG-047). | +23 / -2 |
+| `tools/offline-chatroom.ps1` (new) | Andy's laptop script (from CHG-044), published as is behind a 7-line header: what it does, that it is read-only toward the server, and `License: MIT (see LICENSE in https://github.com/Cremea06/eagles-nest-chat)`. Nothing personal was found in the source, so nothing was removed. | +112 / -0 |
+| `README.md` | New section "Offline chatroom (Windows PowerShell)", appended after "last5.txt (public room tail)". | +51 / -0 |
 
-**The rule (new names only)**
-1. **Hidden characters** in the raw input are rejected: Unicode format characters (Cf, e.g. zero-width, bidi controls, U+FEFF, soft hyphen), lone surrogates, private use, and blank fillers (U+115F, U+1160, U+3164, U+FFA0, U+2800). Checked before whitespace collapsing, because JS `\s` would turn U+FEFF into a space.
-2. **Normalize**: trim, and collapse each whitespace run to one space. The normalized name is what gets stored.
-3. **Markup**: reject `< > & " '` and the backtick.
-4. **Controls**: reject control characters left after collapsing (C0, DEL, C1).
-5. **Length**: 2 to 24 characters, counted in code points.
-6. **Letter or number**: at least one letter or digit.
-7. **Reserved names** (below).
+**Script behaviour** (unchanged from the laptop copy)
+- A local scratch chat in the console. Prompt `you:`; commands are case-insensitive and empty lines are ignored.
+- Any other line prints as `[local] ...` and is appended to `offline-chatroom.log` next to the script (or the current folder if pasted into a console), one line per entry: `yyyy-MM-dd HH:mm:ss [local] text`.
+- `/sync`: one HTTPS GET of the public `https://chat.afirstflag.com/last5.txt` (5 s timeout), printed as is. `no remote file yet` for an empty tail or 404, `offline` when there is no HTTP response, `offline (HTTP <code>)` for any other status.
+- `/quit` (or EOF) exits.
+- Sends nothing to the server: no POST/PUT, no body, no query string, no login. The URL is fixed.
+- Works on Windows PowerShell 5.1 and PowerShell 7 (adds TLS 1.2 on older .NET).
 
-Rejections reach the user through the existing pane line `Fail. <reason> Closing in 5 seconds`, rendered as text by CHG-048. No page change.
-
-**Reserved keys**: `neagle`, `admin`, `operator`, `system`, `andy`, `guestuser`, `server`, `anonymous`.
-- Compared as **whole keys** after folding, so 'Sandy', 'Adminton', 'Systemic', 'NeagleFan' and 'Andy Smith' stay allowed.
-- `guestuser` is a **prefix**: no new name may start with the guest prefix ('Guest User 1234', 'Guest-User 1234', 'GuestUserFan').
-- **Fold**, applied to the candidate and to each key: NFKC, lowercase, strip accents (NFD then drop combining marks), a lookalike skeleton (Greek and Cyrillic letters to Latin, IPA and Armenian g to g; i, 1, |, U+01C0 and dotless i to l; 0 to o), strip whitespace, punctuation (including `_` and `-`), symbols and Cf, then `rn` to `m`.
-
-**The Andy gate**
-- `andy` is the only owner-only key. A name that folds to `andy` passes the name step if every other rule passes; the email step then allows it only when the account email (trimmed, lowercased) matches Andy's. Otherwise: `Fail. That name is reserved. Closing in 5 seconds`, and no account or code is created.
-- The email is in the code only as a SHA-256 hash (`OWNER_EMAIL_SHA256.andy`), because the repo is public. The account still has to be confirmed with the `/auth` code sent to that inbox.
-
-**Server-generated guest names** (`Guest-User NNNN`) skip the reserved check (`serverGenerated`); the full 1000 to 9999 range passes every other rule.
-
-**Where the rule applies** (server.js line numbers at ce97464)
-- `:895` register, name step: the only path that takes a new name from a user. Rule applied and the name normalized; the guest-name and duplicate checks then run on the normalized name.
-- `:915` / `:917` register, email step: Andy gate, `check(name, {email})`.
-- `:382` legacy chat-registration confirm: guarded with that path's own `system` message.
-- Not validated, on purpose (stored or server-made names): `join` (`:796`, browser-sent names ignored since CHG-047), Guest-User generation (`:820`), cookie restore (`readMember`, `io.use`), login by email, `auth:try`, `POST /api/member/session`, the `/nest` command and namespace, Neagle replies.
+**README section covers**: what it is; requirements; download via the raw GitHub link or an `Invoke-WebRequest -OutFile` one-liner; running it (`Unblock-File`, and `-ExecutionPolicy Bypass` for that run only, `pwsh` on 7); the commands and `/sync` messages; where the log is; privacy (local lines stay on the PC, `/sync` only reads the public tail, which empties when the server restarts).
 
 ## What did not change
 
-- **Stored names are never re-checked or rewritten**, and users.json is not touched. Legacy members whose names would fail the new rule (including the existing 'Andy') still log in, restore by cookie, enter /nest, and appear in `/api/member/me`.
-- CHG-047 sign-in, remember-me and `/logout` everywhere; CHG-048 text-only rendering; CHG-049 `/api/member/me` and its CORS (same status, headers and body as base for signed-in, signed-out, stale-cookie, foreign-origin and preflight cases).
-- `public/index.html`, `public/world/index.html`, `lib/last5.js`, `lib/memberToken.js`, `.env.example`, `package.json`. No new dependencies and no new env vars.
-- Still present: guest one-click join, `io.of('/nest')`, the `/nest` command, `/world`, the presence roster, `/last5.txt`, `?login=1`, the x / Esc login pane. Still absent: `mintNestWorldPass` and any server `world:enter` handler.
+- `server.js`, `public/`, `lib/`, `package.json`, `package-lock.json`, `.env.example`, `LICENSE`, `CONTRIBUTING.md`, `VALIDATE.md`. No server behaviour change, no env change.
+- The rest of `README.md` (lines 1 to 32) is byte-identical; the section is appended.
 
-## VPS steps (for whoever ships it)
+## VPS steps
 
-1. In the app dir: `git pull` (no `npm install`, no env changes).
-2. `pm2 restart "Eagles Nest"`
+None required (docs and tools only). `git pull` on the VPS is harmless; no restart needed. The raw download link works now that the file is on main.
 
-Rollback: `git revert ce97464`, `git pull`, `pm2 restart "Eagles Nest"`.
+## Checks (done 2026-09-30, before commit)
 
-## Risks and follow-ups
+- PowerShell 7.6.6 parse (`[System.Management.Automation.Language.Parser]::ParseFile`): 0 errors.
+- Smoke test under pwsh 7.6.6: `/sync` printed the live last5.txt (matching curl); a local line printed `[local] ...` and was appended to the log; empty line ignored; `/SYNC` worked; `/quit` and EOF exited 0; with an unreachable proxy `/sync` printed `offline`.
 
-- The owner email is a hash, not plaintext. Someone who guesses the address can confirm it against the hash.
-- The skeleton goes beyond Andy's list (i/l/1/| to l, 0 to o, `rn` to `m`, accents, symbols). Side effect: names one lookalike away from a reserved key ('Adrnin', 'Admln') are also rejected.
-- Digits are kept, so 'Neagle2' and 'Andy1' are allowed. Digit-suffix reservation is a possible follow-up.
-- Not covered: lookalikes outside the map (e.g. Cherokee), and near-duplicates of real members' names.
-- Pre-existing, unchanged: an unconfirmed registration holds its name and email until it is confirmed.
+## Notes
+
+- Line endings: the prepared copy was CRLF, but the committed file is stored with LF (`git ls-files --eol`: `i/lf w/lf`). Content is otherwise identical. Both Windows PowerShell 5.1 and pwsh 7 run LF scripts; no action needed unless CRLF is wanted, in which case add a `.gitattributes` rule (`*.ps1 text eol=crlf`).
+- `last5.txt` empties on every server restart, so `/sync` right after a restart shows `no remote file yet`.
