@@ -31,6 +31,13 @@ presence events, or Nest World (`/nest`) traffic.
 The file lives at `data/last5.txt` (gitignored; override with `LAST5_PATH`). The node
 process must be able to create and write that directory.
 
+## Server stats (public, read-only)
+
+`https://chat.afirstflag.com/api/server-stats` gives the homepage Server row (Live-state Analysis drawer on
+afirstflag.com) its numbers: CPU % of the VPS, the last 60 readings (one every 2 s), memory % and uptime. Numbers
+only. Browsers may read it only from `https://afirstflag.com` and `https://www.afirstflag.com` (no cookies); 60
+requests a minute per visitor. The sampler lives in `lib/serverStats.js`; tests: `npm test`. Details: CHANGES.md (CHG-081).
+
 ## Offline chatroom (Windows PowerShell)
 
 `tools/offline-chatroom.ps1` is a small console script for your own PC: a local scratch chat

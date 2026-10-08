@@ -14,6 +14,7 @@ const usernameRule = require('./lib/username'); // CHG-051
 const states = require('./lib/states'); // CHG-055
 const { createRepThrottle } = require('./lib/repThrottle'); // CHG-055
 const editMode = require('./lib/editMode'); // CHG-058
+const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
 
 const app = express();
 const server = http.createServer(app);
@@ -49,6 +50,13 @@ const XAI_API_KEY = process.env.XAI_API_KEY;
 // which would break a credentialed fetch. This route sets its own CORS headers (memberMe).
 app.options('/api/member/me', memberMe);
 app.get('/api/member/me', memberMe);
+
+// CHG-081: GET /api/server-stats, read-only CPU / memory / uptime numbers for the homepage Live-state panel.
+// Also registered BEFORE the global cors(): it allows only the two homepage origins (no localhost, no
+// credentials) and answers its own OPTIONS. Sampled every 2 s in the background (lib/serverStats.js).
+const serverStats = createServerStats();
+serverStats.start();
+app.all('/api/server-stats', serverStatsRoute(serverStats, createRateLimiter()));
 
 app.use(cors({
   origin: [
