@@ -38,6 +38,16 @@ afirstflag.com) its numbers: CPU % of the VPS, the last 60 readings (one every 2
 only. Browsers may read it only from `https://afirstflag.com` and `https://www.afirstflag.com` (no cookies); 60
 requests a minute per visitor. The sampler lives in `lib/serverStats.js`; tests: `npm test`. Details: CHANGES.md (CHG-081).
 
+## Safe link check (CHG-106)
+
+`POST https://chat.afirstflag.com/api/safe-link` with `{"url": "..."}` (JSON, max 2 KB) answers
+`{verdict: "safe"|"caution"|"danger"|"unknown", reasons: [...], host, finalUrl?}` for the homepage search box.
+It asks Google Safe Browsing (Lookup API v4), checks brand lookalikes and red flags, and expands known short links
+(HEAD only, max 5 hops, private/local addresses refused on every hop). Only the two afirstflag.com origins get CORS;
+10 checks per minute per client. URLs are never logged or stored. Needs `GOOGLE_SAFE_BROWSING_KEY` in `.env`
+(never commit it). `TRUST_PROXY=1` only if nginx sends X-Forwarded-For. Tests: `npm test`; one real Google call:
+`npm run test:live`. Logic: `lib/safeLink.js`, `lib/brands.js`.
+
 ## Offline chatroom (Windows PowerShell)
 
 `tools/offline-chatroom.ps1` is a small console script for your own PC: a local scratch chat

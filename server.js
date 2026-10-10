@@ -15,6 +15,7 @@ const states = require('./lib/states'); // CHG-055
 const { createRepThrottle } = require('./lib/repThrottle'); // CHG-055
 const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
+const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
 
 const app = express();
 const server = http.createServer(app);
@@ -57,6 +58,13 @@ app.get('/api/member/me', memberMe);
 const serverStats = createServerStats();
 serverStats.start();
 app.all('/api/server-stats', serverStatsRoute(serverStats, createRateLimiter()));
+
+// CHG-106: POST /api/safe-link {url} -> {verdict, reasons, host, finalUrl?} for the Shop's third-window search box.
+// Same pattern as server-stats: BEFORE the global cors()/express.json(), only the two homepage origins, own OPTIONS,
+// own 2 KB JSON parser, 10/min per client. Key: GOOGLE_SAFE_BROWSING_KEY in .env. URLs are never logged or stored.
+// TRUST_PROXY=1 (only when nginx sends X-Forwarded-For): rate-limit by the forwarded client address.
+if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 'loopback');
+app.all('/api/safe-link', safeLinkRoute());
 
 app.use(cors({
   origin: [

@@ -1,3 +1,21 @@
+# CHG-106: POST /api/safe-link (Google Safe Browsing + lookalike + short-link checks)
+
+Goes with the CHG-106 Shop change (Safe Search in the third-window search box on afirstflag.com).
+Prepared 2026-10-09: committed locally by Andy's identity, not pushed, not deployed. Base `6674d7f` (CHG-081).
+
+| File | Change |
+|---|---|
+| `lib/safeLink.js` (new) | Normalize (https default, http/https only, IDN both ways, 2048 cap), SSRF guard (literal + DNS, every hop, pinned at connect), Safe Browsing threatMatches:find (3 s, clientId afirstflag), red flags, short-link expansion, daily verdict counters (no URLs), the route. |
+| `lib/brands.js` (new) | ~35 phished brands + official domains; lookalike check reusing the CHG-051 `fold()` skeleton plus vv->w. |
+| `server.js` | Mounts `app.all('/api/safe-link', ...)` after server-stats, before the global `cors()`; `trust proxy` loopback only when `TRUST_PROXY=1`. |
+| `test/safe-link.test.js`, `test/safe-link.live.test.js` (new) | Mocked unit + API tests; one real Google call (`npm run test:live`). |
+| `package.json` | `npm test` also runs the safe-link tests; `test:live` script. No new dependency. |
+| `README.md` | Short section. |
+
+Env: `GOOGLE_SAFE_BROWSING_KEY` (required, in `.env`, never committed), `TRUST_PROXY=1` (optional, only with the nginx X-Forwarded-For line).
+
+---
+
 # CHG-081: GET /api/server-stats (CPU, memory and uptime for the homepage Server row)
 
 Nest/Milliway repo (Cremea06/eagles-nest-chat). Goes with the CHG-081 Shop change (the Server row in the Live-state Analysis drawer on afirstflag.com).
