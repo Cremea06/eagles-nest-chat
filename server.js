@@ -16,6 +16,7 @@ const { createRepThrottle } = require('./lib/repThrottle'); // CHG-055
 const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
+const { profileRoute } = require('./lib/profile'); // CHG-115
 
 const app = express();
 const server = http.createServer(app);
@@ -136,10 +137,23 @@ function loadUsers() {
 
 function saveUsers(users) {
   fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
+  profile.invalidate(); // CHG-115
 }
 
 let registeredUsers = loadUsers();
 console.log(`Loaded ${registeredUsers.length} registered users`);
+
+// CHG-115: read-only public profiles. GET /api/profile/:username -> {username, tier, joined?} or a plain 404
+// (lib/profile.js: CHG-051 fold() lookup, safe fields only, 30/min per visitor, 60 s cache).
+// GET /u/:username serves public/profile.html (+ profile.js/.css) with a strict CSP. Same-origin, no cookies read.
+const profile = profileRoute(() => registeredUsers);
+app.get('/api/profile/:username', profile.handler);
+const PROFILE_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; " +
+  "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+app.get('/u/:username', (req, res) => {
+  res.set({ 'Content-Security-Policy': PROFILE_CSP, 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+  res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+});
 
 // CHG-047 — remember signed-in members for 30 days (HttpOnly cookie holding a signed token).
 // Off unless MEMBER_TOKEN_SECRET is 32+ chars; when off, everything behaves as before.

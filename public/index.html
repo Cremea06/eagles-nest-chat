@@ -149,6 +149,11 @@
       white-space: nowrap;
     }
     #editModeChip[hidden] { display: none; }
+    /* CHG-115: 'My profile' link, members only */
+    #myProfile { font-size: 0.75rem; font-weight: 600; color: #7cc4ff; text-decoration: none; border: 1px solid rgba(124, 196, 255, 0.35);
+      border-radius: 999px; padding: 0.35rem 0.7rem; white-space: nowrap; }
+    #myProfile:hover { background: rgba(124, 196, 255, 0.12); }
+    #myProfile[hidden] { display: none; }
     #chat > h2 { flex-wrap: wrap; row-gap: 8px; } /* narrow screens: the pill drops to a second row instead of overflowing */
 
     #messages {
@@ -533,6 +538,7 @@
       Milliway
       <span id="editModeChip" hidden>EDIT MODE</span>
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
+      <a id="myProfile" hidden target="_blank" rel="noopener">My profile</a>
     </h2>
     <div id="messages"></div>
     <form id="form">
@@ -816,6 +822,20 @@
 
     socket.on('joined', (data) => {
       window.guestName = data && data.username;
+    });
+
+    // CHG-115: 'My profile' link for members (guests are 'Guest-User NNNN'); hidden again for guests.
+    socket.on('joined', (data) => {
+      const n = String((data && data.username) || '');
+      const a = document.getElementById('myProfile');
+      if (!a) return;
+      if (n && !/^guest-user \d+$/i.test(n)) {
+        a.href = '/u/' + encodeURIComponent(n);
+        a.hidden = false;
+      } else {
+        a.hidden = true;
+        a.removeAttribute('href');
+      }
     });
 
     const form = document.getElementById('form');

@@ -1,3 +1,22 @@
+# CHG-115: read-only public profile page (GET /api/profile/:username + /u/:username)
+
+Prepared 2026-10-12 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `b912df1` (CHG-106).
+
+| File | Change |
+|---|---|
+| `lib/profile.js` (new) | Lookup by the CHG-051 `fold()` (lookalikes resolve to the real account; two stored names that fold together are both hidden). Returns only `{username, tier: 'Member', joined?}` (joined = `createdAt` day, omitted when missing). Plain 404 `{"error":"not_found"}` for unknown, unfinished sign-ups (`verified:false` / `pendingCode`), names failing today's CHG-051 `check()`, and collisions. 30/min per visitor with the CHG-106 `rateKey` (X-Forwarded-For only with `TRUST_PROXY=1` and a loopback peer), 429 + Retry-After. `Cache-Control: public, max-age=60`; in-memory index rebuilt after 60 s or on `invalidate()`. |
+| `server.js` | Mounts `GET /api/profile/:username` and `GET /u/:username` (serves `public/profile.html`, strict CSP `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; ...`, max-age 300) after users load; `saveUsers()` calls `profile.invalidate()`. |
+| `public/profile.html`, `profile.js`, `profile.css` (new) | Static page in the chat's glass style; fills name, tier, join date with `textContent` only; 'No such member.' on 404, 'Slow down…' on 429; `noindex`. |
+| `public/index.html` | Hidden 'My profile' pill in the chat header, shown on `joined` for members only (link `/u/<name>`, new tab). |
+| `tools/audit-usernames.js` (new) | Prints only `N of M stored usernames fail today's CHG-051 rules` (exit 1 when N > 0). |
+| `test/profile.test.js` (new) | 14 tests; `npm test` runs it. Test 12 starts a copy of server.js on port 3000 (skipped if busy). |
+| `package.json` | `npm test` includes test/profile.test.js. No new dependency. |
+
+No editing, no bio, no listing endpoint. users.json is only read. No `.env` change.
+Deploy (VPS, `~/chat-app`): `cp users.json users.json.bak-115`, `git pull`, `node tools/audit-usernames.js users.json` (expect 0), `pm2 restart "Eagles Nest"`.
+
+---
+
 # CHG-106: POST /api/safe-link (Google Safe Browsing + lookalike + short-link checks)
 
 Goes with the CHG-106 Shop change (Safe Search in the third-window search box on afirstflag.com).
