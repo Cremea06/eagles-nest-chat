@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/server-stats.test.js test/safe-link.test.js test/profile.test.js test/support.test.js",
+    "test": "node --test test/server-stats.test.js test/safe-link.test.js test/profile.test.js test/support.test.js test/support-memory.test.js",
     "test:live": "node --test test/safe-link.live.test.js"
   },
   "keywords": [],

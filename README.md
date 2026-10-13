@@ -114,3 +114,8 @@ The Shop's **Need to talk?** dialog links to the national 988 Suicide & Crisis L
 - **Privacy:** nothing extra is stored. The flag lives only in server memory on your connection and ends when you leave.
   The greeting is limited to one per connection and a few per visitor per hour, counted in memory under a salted hash,
   never the raw IP address.
+- **Short-term memory (CHG-129):** so Neagle can follow the conversation, a support chat is remembered **only in server
+  memory**, per connection: your lines and Neagle's replies (including the greeting), at most the last 10 turns and about
+  4,000 characters. It is discarded when you leave, after 30 minutes of quiet, or when the server restarts, and it is
+  never written to disk, logs, or the last-lines file. Each Neagle reply sends that recent conversation to the AI model
+  provider along with your newest line. Ordinary (non-support) chat keeps no history.

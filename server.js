@@ -870,7 +870,7 @@ Help with the room when asked: /help, /register, /login, /who, /nest (registered
 
 Address them by the name you are given. Do not invent lore.`;
 
-async function askNeagle(userMessage, username, supportSession = false) {
+async function askNeagle(userMessage, username, supportSession = false, history = null) {
   if (!XAI_API_KEY) {
     if (supportSession) return support.FALLBACK_REPLY; // CHG-128: no sarcasm in a support session
     return 'The human forgot to give me my API key. Typical.';
@@ -885,10 +885,9 @@ async function askNeagle(userMessage, username, supportSession = false) {
       },
       body: JSON.stringify({
         model: 'grok-3',
-        messages: [
-          { role: 'system', content: support.systemPromptFor(NEAGLE_SYSTEM_PROMPT, supportSession) }, // CHG-128
-          { role: 'user', content: `${username} said: ${userMessage}` }
-        ],
+        // CHG-129: support sessions also send their short-term history; normal chat sends no history
+        messages: support.buildMessages(support.systemPromptFor(NEAGLE_SYSTEM_PROMPT, supportSession), // CHG-128
+          supportSession && Array.isArray(history) ? history : [], `${username} said: ${userMessage}`),
         temperature: 0.8,
         max_tokens: 150
       })
@@ -925,7 +924,8 @@ const mailer = nodemailer.createTransport({
 });
 
 // CHG-128 — support-flag sessions (memory only, hashed rate key; see lib/support.js)
-const supportSessions = support.createSupport({ say: (text) => neagleSay(text) });
+const supportMemory = support.createSupportMemory(); // CHG-129: per-socket, memory only, 30 min TTL
+const supportSessions = support.createSupport({ say: (text) => neagleSay(text), memory: supportMemory });
 
 async function sendAuthEmail(to, code) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -1268,9 +1268,13 @@ io.on('connection', (socket) => {
     const randomJoin = Math.random() < 0.12;
     const supportSession = supportSessions.isSupport(socket); // CHG-128
 
-    if (supportSession ? supportSessions.shouldReply(socket) : (isMentioned || randomJoin)) {
-      let reply = await askNeagle(text, username, supportSession);
+    const willReply = supportSession ? supportSessions.shouldReply(socket) : (isMentioned || randomJoin);
+    const history = supportSession ? supportMemory.get(socket) : null; // CHG-129: snapshot before this line
+    if (supportSession) supportMemory.add(socket, 'user', `${username} said: ${text}`);
+    if (willReply) {
+      let reply = await askNeagle(text, username, supportSession, history);
       if (supportSession) reply = support.withCrisisReminder(reply, text); // CHG-128: 988 / 911 in code too
+      if (supportSession) supportMemory.add(socket, 'assistant', reply); // CHG-129
       setTimeout(() => {
         io.emit('chat message', {
           username: 'Neagle',
@@ -1343,6 +1347,7 @@ io.on('connection', (socket) => {
     }
     // CHG-058: edit mode ends with the connection
     socket.edit = null;
+    supportMemory.forget(socket); // CHG-129: support history ends with the connection
     if (socket.editMode) {
       socket.editMode = false;
       console.log('[editmode] off (disconnect)', socket.username);

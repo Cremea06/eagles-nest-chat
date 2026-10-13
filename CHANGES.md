@@ -1,3 +1,18 @@
+# CHG-129: Short-term memory for support chats
+
+Prepared 2026-10-13 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `5e79d7b` (CHG-128).
+
+| File | Change |
+|---|---|
+| `lib/support.js` | `createSupportMemory()`: per-socket (Map keyed by socket.id) rolling history of user/assistant messages, capped at 20 messages and 4,000 characters (oldest trimmed first), 30-minute inactivity TTL (lazy check on every access + unref'd 60 s sweep; `now`/`ttlMs` injectable), `forget()` on disconnect. Memory only; never logged or written. `buildMessages()` = system, history, newest line last. The scripted greeting is recorded as the first assistant message. |
+| `server.js` | `askNeagle(…, history)`: support sessions send their history; non-support chat sends exactly the same two messages as before. Every support line is recorded (lines inside the 4 s cooldown too) and Neagle's final reply (after the 988/911 code reminder). Disconnect wipes it. `max_tokens` stays 150. |
+| `test/support-memory.test.js` (new) | 8 tests, AI stubbed, fake clock; `npm test` runs it. |
+| `README.md` | Support privacy note: short-term memory. |
+
+Deploy (VPS, `~/chat-app`): `cp users.json users.json.bak-129`, `git pull`, `pm2 restart "Eagles Nest"`.
+
+---
+
 # CHG-128: Support-flag greeting from Neagle (`/?support=1`)
 
 Prepared 2026-10-13 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `fd72646`.
