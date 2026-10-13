@@ -810,14 +810,27 @@
       document.body.classList.add('nest-on');
     }
 
+    // CHG-128 — /?support=1 (Shop "Need to talk?"): strip it from the address bar right away and tell the
+    // server once, with the first join only. Nothing is shown to the room; Neagle greets this guest publicly.
+    let supportFlag = /^(1|true)$/.test(new URLSearchParams(location.search).get('support') || '');
+    if (supportFlag) {
+      const q = location.search.slice(1).split('&').filter(p => p && p.split('=')[0] !== 'support').join('&');
+      history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+    }
+    function joinPayload() {
+      if (!supportFlag) return {};
+      supportFlag = false;
+      return { support: true };
+    }
+
     function joinChat() {
       showRoom();
-      socket.emit('join', {});
+      socket.emit('join', joinPayload());
     }
 
     socket.on('connect', () => {
       showRoom();
-      socket.emit('join', {});
+      socket.emit('join', joinPayload());
     });
 
     socket.on('joined', (data) => {

@@ -98,3 +98,19 @@ current folder if the script is pasted into a console), one line per entry:
 public last-5 tail, a plain HTTPS GET of the same `last5.txt` anyone can open in a browser.
 That file empties whenever the chat server restarts, so right after a restart `/sync` shows
 `no remote file yet`.
+
+## Support entry (CHG-128)
+
+The Shop's **Need to talk?** dialog links to the national 988 Suicide & Crisis Lifeline (call, text, or chat at
+988lifeline.org) and offers **Join Milliway**, which opens `https://chat.afirstflag.com/?support=1`.
+
+- The page removes `?support=1` from the address bar and tells the server once, with the first join. Nothing is shown to
+  the room about the flag itself.
+- Neagle then greets you **publicly** in Milliway by your display name: `Howdy partner, what seems to troubling you?`
+  Milliway is a public room: everyone in it, including Neagle (an AI, not a counselor), sees what you write.
+- For the rest of that connection, Neagle answers your lines with a supportive prompt (listen, encourage, no methods,
+  no medical advice) and reminds you of 988 (call or text) and 911 for immediate danger whenever self-harm or suicide
+  comes up. Neagle's replies go to an AI model provider, the same as every Neagle reply.
+- **Privacy:** nothing extra is stored. The flag lives only in server memory on your connection and ends when you leave.
+  The greeting is limited to one per connection and a few per visitor per hour, counted in memory under a salted hash,
+  never the raw IP address.

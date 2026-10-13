@@ -1,3 +1,15 @@
+# CHG-128: Support-flag greeting from Neagle (`/?support=1`)
+
+Prepared 2026-10-13 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `fd72646`.
+
+| File | Change |
+|---|---|
+| `lib/support.js` (new) | `createSupport()`: `onJoin` reads `{ support: true }` on join, one greeting per socket, 3 per visitor per hour (CHG-081 `createRateLimiter`, key = sha256(per-process salt + CHG-106 `rateKey`), memory only); Neagle's scripted public line `<name>: Howdy partner, what seems to troubling you?` (no AI call). `systemPromptFor()` adds the support-session prompt (listen, encourage, no methods, no medical advice, 988/911). `withCrisisReminder()` appends the 988/911 reminder in code when self-harm comes up and the reply lacks 988. |
+| `server.js` | Join calls `onJoin` after the welcome. In a support session Neagle answers every line from that guest (4 s cooldown) with the support prompt, plus the code reminder; no-key/error/empty replies use a gentle fallback instead of the sarcastic lines. Everything else unchanged. |
+| `public/index.html` | Strips `?support=1` from the address bar on load and sends `{ support: true }` with the first join only. |
+| `test/support.test.js` (new) | 7 tests, stubbed AI; `npm test` runs it. |
+| `README.md` | Support entry + privacy note. |
+
 # CHG-115: read-only public profile page (GET /api/profile/:username + /u/:username)
 
 Prepared 2026-10-12 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `b912df1` (CHG-106).

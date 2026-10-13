@@ -17,6 +17,7 @@ const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
 const { profileRoute } = require('./lib/profile'); // CHG-115
+const support = require('./lib/support'); // CHG-128
 
 const app = express();
 const server = http.createServer(app);
@@ -869,8 +870,9 @@ Help with the room when asked: /help, /register, /login, /who, /nest (registered
 
 Address them by the name you are given. Do not invent lore.`;
 
-async function askNeagle(userMessage, username) {
+async function askNeagle(userMessage, username, supportSession = false) {
   if (!XAI_API_KEY) {
+    if (supportSession) return support.FALLBACK_REPLY; // CHG-128: no sarcasm in a support session
     return 'The human forgot to give me my API key. Typical.';
   }
 
@@ -884,7 +886,7 @@ async function askNeagle(userMessage, username) {
       body: JSON.stringify({
         model: 'grok-3',
         messages: [
-          { role: 'system', content: NEAGLE_SYSTEM_PROMPT },
+          { role: 'system', content: support.systemPromptFor(NEAGLE_SYSTEM_PROMPT, supportSession) }, // CHG-128
           { role: 'user', content: `${username} said: ${userMessage}` }
         ],
         temperature: 0.8,
@@ -904,9 +906,10 @@ async function askNeagle(userMessage, username) {
     usageStats.total += total;
 
     io.emit('usage', usagePayload());
-    return data.choices?.[0]?.message?.content?.trim() || 'I have nothing to say right now.';
+    return data.choices?.[0]?.message?.content?.trim() || (supportSession ? support.FALLBACK_REPLY : 'I have nothing to say right now.');
   } catch (err) {
     console.error('Neagle API error:', err);
+    if (supportSession) return support.FALLBACK_REPLY; // CHG-128
     return 'Something went wrong in my brain. Try again later.';
   }
 }
@@ -920,6 +923,9 @@ const mailer = nodemailer.createTransport({
     pass: process.env.SMTP_PASS
   }
 });
+
+// CHG-128 — support-flag sessions (memory only, hashed rate key; see lib/support.js)
+const supportSessions = support.createSupport({ say: (text) => neagleSay(text) });
 
 async function sendAuthEmail(to, code) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -1041,6 +1047,7 @@ io.on('connection', (socket) => {
     socket.broadcast.emit(wasPresent ? 'presence:update' : 'presence:join', { user: pUser });
     presenceSync(socket);
     socket.emit('editmode:state', editModeState()); // CHG-058: EDIT MODE header for newcomers
+    supportSessions.onJoin(socket, data, () => shownName(socket)); // CHG-128: silent; Neagle greets publicly
   });
 
   socket.on('priv:open', (data = {}) => {
@@ -1259,9 +1266,11 @@ io.on('connection', (socket) => {
                         lowerMsg.includes('cranky eagle');
 
     const randomJoin = Math.random() < 0.12;
+    const supportSession = supportSessions.isSupport(socket); // CHG-128
 
-    if (isMentioned || randomJoin) {
-      const reply = await askNeagle(text, username);
+    if (supportSession ? supportSessions.shouldReply(socket) : (isMentioned || randomJoin)) {
+      let reply = await askNeagle(text, username, supportSession);
+      if (supportSession) reply = support.withCrisisReminder(reply, text); // CHG-128: 988 / 911 in code too
       setTimeout(() => {
         io.emit('chat message', {
           username: 'Neagle',
