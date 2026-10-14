@@ -18,6 +18,7 @@ const { createServerStats, createRateLimiter, serverStatsRoute } = require('./li
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
 const { profileRoute } = require('./lib/profile'); // CHG-115
 const support = require('./lib/support'); // CHG-128
+const { memberCountRoute } = require('./lib/memberCount'); // CHG-132
 
 const app = express();
 const server = http.createServer(app);
@@ -67,6 +68,11 @@ app.all('/api/server-stats', serverStatsRoute(serverStats, createRateLimiter()))
 // TRUST_PROXY=1 (only when nginx sends X-Forwarded-For): rate-limit by the forwarded client address.
 if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 'loopback');
 app.all('/api/safe-link', safeLinkRoute());
+
+// CHG-132: GET /api/member-count -> {"members": N} (count of users.json records only, 60 s cache, 30/min per client).
+// Same pattern as server-stats: BEFORE the global cors(), only the two homepage origins, own OPTIONS, no credentials.
+const memberCount = memberCountRoute(path.join(__dirname, 'users.json'));
+app.all('/api/member-count', memberCount.handler);
 
 app.use(cors({
   origin: [
@@ -139,6 +145,7 @@ function loadUsers() {
 function saveUsers(users) {
   fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
   profile.invalidate(); // CHG-115
+  memberCount.invalidate(); // CHG-132
 }
 
 let registeredUsers = loadUsers();
