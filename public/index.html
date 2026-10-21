@@ -410,6 +410,16 @@
 
     .viewport.streaming .placeholder { display: none; }
 
+    /* CHG-133: Tailgate Party mode (Rumble live stream inside the Broadcast card) */
+    .viewport iframe.tg-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+    #tgBtn, #tgLink { display: none; }
+    #liveCard.tailgate #tgBtn { display: block; }
+    #liveCard.tailgate #goLiveBtn, #liveCard.tailgate #chooser { display: none !important; }
+    #liveCard.tailgate.tg-playing .placeholder { display: none; }
+    #tgLink { margin: 6px 4px 0; font-size: 0.78rem; color: #a0aec0; text-align: right; }
+    #liveCard.tg-playing #tgLink { display: block; }
+    #tgLink a { color: #85c1ff; }
+
     .live-status {
       min-height: 18px;
       margin: 8px 4px 10px;
@@ -559,16 +569,18 @@
 
   <aside id="liveCard" class="glass">
     <div class="live-head">
-      <h3>Broadcast</h3>
+      <h3 id="liveTitle">Broadcast</h3>
       <span class="live-badge" id="liveBadge"><span class="dot"></span> LIVE</span>
     </div>
     <div class="viewport" id="viewport">
       <video id="preview" autoplay playsinline></video>
       <div class="placeholder" id="placeholder">One click to go live.<br>Camera or screen, plus audio.</div>
     </div>
+    <div id="tgLink"><a id="tgLinkA" href="https://rumble.com/c/nickjfuentes" target="_blank" rel="noopener noreferrer">Watch on Rumble</a></div>
     <div class="live-status" id="liveStatus">Ready when you are.</div>
     <div class="live-actions">
       <button class="btn-live" id="goLiveBtn" type="button">Go Live</button>
+      <button class="btn-live" id="tgBtn" type="button">Tailgate Party</button>
       <div class="chooser" id="chooser">
         <button class="choice" id="camBtn" type="button">Camera<small>Face + mic</small></button>
         <button class="choice" id="screenBtn" type="button">Screen<small>Share + mic</small></button>
@@ -633,7 +645,55 @@
       liveControls.classList.toggle('on', on);
       goLiveBtn.style.display = on ? 'none' : 'block';
       chooser.classList.remove('open');
+      if (typeof applyTailgate === 'function' && liveCard) { if (on) tgStop(); applyTailgate(tg); } // CHG-133
     }
+
+    // CHG-133: Tailgate Party mode. State from GET /api/tailgate on load and 'tailgate:state' over the socket.
+    const liveCard = document.getElementById('liveCard');
+    const liveTitle = document.getElementById('liveTitle');
+    const tgBtn = document.getElementById('tgBtn');
+    const tgLinkA = document.getElementById('tgLinkA');
+    const placeholderEl = document.getElementById('placeholder');
+    const PLACEHOLDER_NORMAL = placeholderEl.innerHTML;
+    const TG_EMBED_RE = /^[a-z0-9]+$/i;
+    let tg = { mode: 'normal', embedId: null };
+    function tgStop() {
+      const f = viewport.querySelector('iframe.tg-frame');
+      if (f) f.remove();
+      liveCard.classList.remove('tg-playing');
+    }
+    function applyTailgate(st) {
+      const on = !!(st && st.mode === 'tailgate' && typeof st.embedId === 'string' && TG_EMBED_RE.test(st.embedId));
+      const prevId = tg.embedId;
+      tg = { mode: on ? 'tailgate' : 'normal', embedId: on ? st.embedId : null };
+      if (!on || prevId !== tg.embedId) tgStop();
+      liveCard.classList.toggle('tailgate', on && !amLive);
+      liveTitle.textContent = on ? 'Tailgate Party' : 'Broadcast';
+      if (on && !amLive && !liveCard.classList.contains('tg-playing')) {
+        placeholderEl.textContent = 'Nick Fuentes is live on Rumble.';
+        setStatus('Press Tailgate Party to watch.');
+      } else if (!on) {
+        placeholderEl.innerHTML = PLACEHOLDER_NORMAL;
+        if (!amLive) setStatus('Ready when you are.');
+      }
+    }
+    tgBtn.addEventListener('click', () => {
+      if (tg.mode !== 'tailgate' || !TG_EMBED_RE.test(tg.embedId || '')) return;
+      tgStop();
+      const f = document.createElement('iframe');
+      f.className = 'tg-frame';
+      f.src = 'https://rumble.com/embed/' + encodeURIComponent(tg.embedId) + '/?autoplay=2';
+      f.title = 'Nick Fuentes live on Rumble';
+      f.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+      f.setAttribute('allowfullscreen', '');
+      f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+      viewport.appendChild(f);
+      tgLinkA.href = 'https://rumble.com/embed/' + encodeURIComponent(tg.embedId) + '/';
+      liveCard.classList.add('tg-playing');
+      setStatus('Tailgate Party on Rumble.');
+    });
+    socket.on('tailgate:state', applyTailgate);
+    fetch('/api/tailgate', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(st => { if (st) applyTailgate(st); }).catch(() => {});
 
     function stopLocal() {
       if (localStream) localStream.getTracks().forEach(t => t.stop());

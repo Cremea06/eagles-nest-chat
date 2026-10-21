@@ -19,6 +19,7 @@ const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
 const { profileRoute } = require('./lib/profile'); // CHG-115
 const support = require('./lib/support'); // CHG-128
 const { memberCountRoute } = require('./lib/memberCount'); // CHG-132
+const tailgate = require('./lib/tailgate'); // CHG-133
 
 const app = express();
 const server = http.createServer(app);
@@ -73,6 +74,13 @@ app.all('/api/safe-link', safeLinkRoute());
 // Same pattern as server-stats: BEFORE the global cors(), only the two homepage origins, own OPTIONS, no credentials.
 const memberCount = memberCountRoute(path.join(__dirname, 'users.json'));
 app.all('/api/member-count', memberCount.handler);
+
+// CHG-133: Tailgate Party mode. GET /api/tailgate (public state), POST /api/tailgate (Bearer TAILGATE_TOKEN; off if unset).
+// Override persisted in tailgate.json (gitignored). Auto mode polls Rumble every 2 min (TAILGATE_POLL=0 disables polling).
+const tailgateState = tailgate.createTailgateState({ file: path.join(__dirname, 'tailgate.json') });
+app.all('/api/tailgate', tailgate.tailgateRoute(tailgateState));
+tailgateState.onChange((st) => io.emit('tailgate:state', st));
+if (process.env.TAILGATE_POLL !== '0') tailgate.startPolling(tailgateState, tailgate.rumbleDetector());
 
 app.use(cors({
   origin: [
@@ -993,6 +1001,7 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
+  socket.emit('tailgate:state', tailgateState.get()); // CHG-133
   console.log('A user connected');
   clearReg(socket);
 
