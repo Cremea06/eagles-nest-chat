@@ -76,7 +76,7 @@ const memberCount = memberCountRoute(path.join(__dirname, 'users.json'));
 app.all('/api/member-count', memberCount.handler);
 
 // CHG-133: Tailgate Party mode. GET /api/tailgate (public state), POST /api/tailgate (Bearer TAILGATE_TOKEN; off if unset).
-// Override persisted in tailgate.json (gitignored). Auto mode polls Rumble every 2 min (TAILGATE_POLL=0 disables polling).
+// Override persisted in tailgate.json (gitignored). Auto mode polls Rumble every 2 min only inside TAILGATE_WINDOW (default Mon-Fri 21:00-22:00 America/New_York) plus live carryover (TAILGATE_POLL=0 disables polling).
 const tailgateState = tailgate.createTailgateState({ file: path.join(__dirname, 'tailgate.json') });
 app.all('/api/tailgate', tailgate.tailgateRoute(tailgateState));
 tailgateState.onChange((st) => io.emit('tailgate:state', st));

@@ -140,3 +140,79 @@ test('rumbleDetector with mocked fetch: live -> oEmbed embed id; format change t
   await assert.rejects(T.rumbleDetector({ fetch: fake('<html>captcha</html>') })(), /page_format_changed/);
   await assert.rejects(T.rumbleDetector({ fetch: async () => ({ ok: false, status: 503 }) })(), /http_503/);
 });
+
+// ---- CHG-133 window (fake clock). Instants in UTC; America/New_York is UTC-4 (EDT) or UTC-5 (EST).
+const Z = (s) => Date.parse(s);
+function poller(t0, det) {
+  let t = t0; let calls = 0;
+  const st = T.createTailgateState({ now: () => t });
+  const p = T.startPolling(st, async () => { calls++; return det(); }, { now: () => t, firstDelayMs: 1e9, intervalMs: 1e9, window: T.createWindow('Mon-Fri 21:00-22:00') });
+  return { st, p, set: (v) => { t = v; }, calls: () => calls };
+}
+
+test('parseWindow', () => {
+  const w = T.parseWindow('Mon-Fri 21:00-22:00');
+  assert.deepStrictEqual([...w.days].sort(), [1, 2, 3, 4, 5]); assert.strictEqual(w.start, 1260); assert.strictEqual(w.end, 1320);
+  assert.deepStrictEqual([...T.parseWindow('Sat,Sun 9:30-11:00').days].sort(), [0, 6]);
+  assert.deepStrictEqual([...T.parseWindow('Fri-Mon 20:00-23:59').days].sort(), [0, 1, 5, 6]);
+  for (const bad of ['', 'Mon-Fri', 'Mon-Fri 22:00-21:00', 'Xyz 21:00-22:00', 'Mon-Fri 25:00-26:00', 'Mon- 21:00-22:00']) assert.strictEqual(T.parseWindow(bad), null, bad);
+  assert.strictEqual(T.createWindow('garbage').spec.start, 1260);   // falls back to default
+});
+
+test('window: weekday inside polls; 8:59 PM, 10:01 PM and weekend do not (EDT)', async () => {
+  const w = T.createWindow();
+  assert.ok(w.inside(Z('2026-10-21T01:00:00Z')));          // Tue Oct 20 21:00 EDT
+  assert.ok(w.inside(Z('2026-10-21T01:59:59Z')));          // 21:59:59
+  assert.ok(!w.inside(Z('2026-10-21T00:59:00Z')));         // 20:59
+  assert.ok(!w.inside(Z('2026-10-21T02:00:00Z')));         // 22:00
+  assert.ok(!w.inside(Z('2026-10-25T01:30:00Z')));         // Sat Oct 24 21:30
+  assert.ok(!w.inside(Z('2026-10-26T01:30:00Z')));         // Sun Oct 25 21:30
+  const a = poller(Z('2026-10-21T01:30:00Z'), () => ({ live: false }));
+  assert.strictEqual(await a.p.once(), 'window'); assert.strictEqual(a.calls(), 1);
+  for (const at of ['2026-10-21T00:59:00Z', '2026-10-21T02:01:00Z', '2026-10-25T01:30:00Z', '2026-10-26T01:30:00Z']) {
+    const b = poller(Z(at), () => { throw new Error('must not be called'); });
+    assert.strictEqual(await b.p.once(), 'skip', at); assert.strictEqual(b.calls(), 0);
+    assert.strictEqual(b.st.get().mode, 'normal');
+  }
+  assert.ok(w.inside(Z('2026-10-24T01:30:00Z')));          // Fri Oct 23 21:30 is inside
+});
+
+test('window: DST dates (EST after Nov 1, EDT after Mar 8)', () => {
+  const w = T.createWindow();
+  assert.ok(w.inside(Z('2026-11-03T02:30:00Z')));          // Mon Nov 2 21:30 EST
+  assert.ok(!w.inside(Z('2026-11-03T01:30:00Z')));         // Mon Nov 2 20:30 EST (would be 21:30 with a fixed -4)
+  assert.ok(!w.inside(Z('2026-11-03T03:00:00Z')));         // 22:00 EST
+  assert.ok(w.inside(Z('2026-03-10T01:30:00Z')));          // Mon Mar 9 21:30 EDT
+  assert.ok(!w.inside(Z('2026-03-10T02:30:00Z')));         // Mon Mar 9 22:30 EDT (would be 21:30 with a fixed -5)
+  assert.ok(w.inside(Z('2026-03-07T02:30:00Z')));          // Fri Mar 6 21:30 EST (before change)
+  assert.ok(!w.inside(Z('2026-03-08T02:30:00Z')));         // Sat Mar 7
+});
+
+test('carryover: live found in window keeps polling after 10 PM until not live; capped at end + 3 h', async () => {
+  let live = true;
+  const a = poller(Z('2026-10-21T01:50:00Z'), () => (live ? { live: true, embedId: 'v7endym' } : { live: false }));
+  assert.strictEqual(await a.p.once(), 'window'); assert.strictEqual(a.st.get().mode, 'tailgate');
+  assert.strictEqual(a.p.carryUntil(), Z('2026-10-21T05:00:00Z'));   // 22:00 + 3 h EDT
+  a.set(Z('2026-10-21T02:01:00Z')); assert.strictEqual(await a.p.once(), 'carry'); assert.strictEqual(a.calls(), 2);
+  a.set(Z('2026-10-21T03:30:00Z')); assert.strictEqual(await a.p.once(), 'carry'); assert.strictEqual(a.st.get().mode, 'tailgate');
+  live = false;
+  a.set(Z('2026-10-21T03:32:00Z')); assert.strictEqual(await a.p.once(), 'carry'); assert.strictEqual(a.st.get().mode, 'normal');
+  a.set(Z('2026-10-21T03:34:00Z')); assert.strictEqual(await a.p.once(), 'skip'); assert.strictEqual(a.calls(), 4);
+  // cap
+  live = true;
+  const b = poller(Z('2026-10-21T01:58:00Z'), () => ({ live: true, embedId: 'v7endym' }));
+  await b.p.once();
+  b.set(Z('2026-10-21T04:59:00Z')); assert.strictEqual(await b.p.once(), 'carry');
+  b.set(Z('2026-10-21T05:01:00Z')); assert.strictEqual(await b.p.once(), 'skip'); assert.strictEqual(b.st.get().mode, 'normal');
+  // not live in window -> no carry after 10 PM
+  const c = poller(Z('2026-10-21T01:58:00Z'), () => ({ live: false }));
+  await c.p.once(); c.set(Z('2026-10-21T02:01:00Z')); assert.strictEqual(await c.p.once(), 'skip'); assert.strictEqual(c.calls(), 1);
+});
+
+test('manual override works outside the window; auto outside is normal', async () => {
+  const a = poller(Z('2026-10-25T15:00:00Z'), () => ({ live: true, embedId: 'v7endym' }));   // Sunday
+  await a.p.once();
+  assert.strictEqual(a.st.get().mode, 'normal');
+  assert.strictEqual(a.st.setOverride('on', 'abc123').mode, 'tailgate');
+  assert.strictEqual(a.st.setOverride('off').mode, 'normal');
+});
