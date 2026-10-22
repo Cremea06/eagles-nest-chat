@@ -5,3 +5,6 @@ flagholders.json
 /data/
 tailgate.json
 tailgate.json.tmp
+clips.json
+clips.json.tmp
+/clips-img/

@@ -532,6 +532,48 @@
       color: #fff;
     }
 
+
+    /* CHG-134: Clips (gold scissors, tray over the bottom of the chat, share panel, clip system line) */
+    #chat { position: relative; }
+    #form #clipBtn { background: transparent; border: 1px solid #d4af37; color: #d4af37; padding: 0 0.9rem; }
+    #form #clipBtn:hover { box-shadow: 0 6px 18px rgba(212, 175, 55, 0.3); }
+    #input { min-width: 0; }
+    @media (max-width: 600px) { #form { gap: 0.5rem; } #form button { padding: 0 0.9rem; } #form .clip-label { display: none; } }
+    #clipTray { position: absolute; left: 0; right: 0; bottom: 0; max-height: 78%; overflow-y: auto; background: #1d1d1d; border-top: 2px solid #d4af37; border-radius: 16px 16px 0 0; padding: 10px 12px 12px; transform: translateY(105%); transition: transform 0.25s ease; z-index: 20; box-shadow: 0 -10px 30px rgba(0,0,0,0.5); }
+    #clipTray.open { transform: translateY(0); }
+    #clipTray .grab { width: 40px; height: 4px; background: #666; border-radius: 2px; margin: 0 auto 8px; }
+    #clipTray h4 { font-size: 0.95rem; margin: 0 0 8px; display: flex; justify-content: space-between; }
+    #clipTray h4 small { color: #888; font-weight: 400; }
+    .mcard { border: 1px solid #555; border-radius: 10px; overflow: hidden; background: #181818; }
+    .mslot { position: relative; height: 96px; background: #2a2a2a; border-bottom: 1px dashed #666; display: flex; align-items: center; justify-content: center; color: #999; font-size: 0.85rem; }
+    .mslot.room { color: #d4af37; font-weight: 700; font-size: 1.1rem; }
+    .mslot .mbadge { position: absolute; left: 8px; top: 8px; border: 1px solid #fff; border-radius: 4px; padding: 1px 6px; color: #fff; font-size: 0.72rem; font-weight: 700; }
+    .mslot .mtitle { position: absolute; left: 8px; bottom: 6px; color: #ddd; font-size: 0.8rem; font-weight: 400; }
+    .mslot .mmute { position: absolute; right: 8px; bottom: 6px; font-size: 0.8rem; }
+    .mlines { max-height: 260px; overflow-y: auto; touch-action: none; }
+    .mline { padding: 5px 10px; border-bottom: 1px solid #2a2a2a; font-size: 0.88rem; cursor: pointer; user-select: none; }
+    .mline b { color: #d4af37; }
+    .mline.out { opacity: 0.3; }
+    .mhandle { background: #d4af37; color: #111; font-size: 0.7rem; font-weight: 700; text-align: center; padding: 2px; cursor: ns-resize; user-select: none; touch-action: none; }
+    .mempty { padding: 14px; color: #888; font-size: 0.85rem; text-align: center; }
+    #clipCaption { width: 100%; margin: 8px 0; padding: 0.6rem 0.8rem; background: #111; border: 1px solid #444; border-radius: 8px; color: #fff; font-size: 0.95rem; }
+    .crow { display: flex; gap: 8px; }
+    .crow button, .sgrid button, .sgrid a { flex: 1; padding: 0.6rem; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; font-size: 0.9rem; cursor: pointer; text-align: center; text-decoration: none; }
+    .crow .gold { border-color: #d4af37; color: #d4af37; }
+    .crow button:disabled { opacity: 0.5; }
+    .sgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
+    #clipVideo { width: 100%; padding: 0.6rem; border-radius: 8px; border: 1px solid #444; background: #1a1a1a; color: #777; }
+    .cnote { color: #888; font-size: 0.75rem; margin-top: 6px; }
+    .cerr { color: #ff8a8a; font-size: 0.8rem; min-height: 1em; margin-top: 4px; }
+    .msg.clipline { border: 1px solid #d4af37; border-radius: 8px; padding: 6px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-style: normal; opacity: 1; }
+    .msg.clipline .ctext { flex: 1; }
+    .msg.clipline .ccap { width: 100%; color: #ccc; font-size: 0.85em; }
+    .msg.clipline button, .msg.clipline a { border: 1px solid #d4af37; background: transparent; color: #d4af37; border-radius: 6px; padding: 1px 8px; font-size: 0.8rem; cursor: pointer; text-decoration: none; }
+    .msg.clipline button.voted { background: #d4af37; color: #111; }
+    #clipAllowRow { display: none; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.85rem; margin-top: 8px; }
+    .chooser.open ~ #clipAllowRow, .live-controls.on ~ #clipAllowRow { display: flex; }
+    #clipAllowRow small { width: 100%; color: rgba(255,255,255,0.55); }
+    #clipRemoveMine { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #ddd; border-radius: 8px; padding: 3px 8px; font-size: 0.8rem; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -553,8 +595,33 @@
     <div id="messages"></div>
     <form id="form">
       <input id="input" autocomplete="off" placeholder="Type a message..." />
+      <button type="button" id="clipBtn" title="Clip the last 30 seconds of chat" aria-label="Clip">&#9986;<span class="clip-label"> Clip</span></button>
       <button>Send</button>
     </form>
+    <div id="clipTray" aria-hidden="true">
+      <div class="grab"></div>
+      <div id="clipEdit">
+        <h4><span>Clip this moment</span><small>last 30 s</small></h4>
+        <div class="mcard">
+          <div class="mslot" id="clipSlot"></div>
+          <div class="mlines" id="clipLines"></div>
+        </div>
+        <input id="clipCaption" maxlength="80" placeholder="(optional caption)" autocomplete="off" />
+        <div class="crow"><button type="button" id="clipCancel">Cancel</button><button type="button" id="clipSave" class="gold">Save</button></div>
+        <div class="cerr" id="clipErr"></div>
+      </div>
+      <div id="clipShare" hidden>
+        <h4><span>&#10003; Clip saved — share it</span></h4>
+        <div class="crow"><input id="clipLink" readonly style="flex:3;padding:0.6rem;border-radius:8px;border:1px solid #555;background:#111;color:#d4af37" /><button type="button" id="clipCopy" class="gold">Copy</button></div>
+        <div class="sgrid">
+          <a id="shX" target="_blank" rel="noopener noreferrer">X</a><a id="shTg" target="_blank" rel="noopener noreferrer">Telegram</a><a id="shFb" target="_blank" rel="noopener noreferrer">Facebook</a>
+          <a id="shRd" target="_blank" rel="noopener noreferrer">Reddit</a><a id="shBs" target="_blank" rel="noopener noreferrer">Bluesky</a><button type="button" id="shNative">Share…</button>
+        </div>
+        <button type="button" id="clipVideo" disabled>&#127902; Video — coming soon</button>
+        <div class="crow" style="margin-top:8px"><button type="button" id="clipDelete">Delete clip</button><button type="button" id="clipDone" class="gold">Done</button></div>
+        <div class="cnote">Share… opens the phone share sheet. Usernames in the clip are shown on the shared card.</div>
+      </div>
+    </div>
   </div>
 
   <div id="sideCol">
@@ -588,6 +655,11 @@
       <div class="live-controls" id="liveControls">
         <button class="btn-ghost" id="muteBtn" type="button">Mute mic</button>
         <button class="btn-live" id="endBtn" type="button">End live</button>
+      </div>
+      <div id="clipAllowRow">
+        <label><input type="checkbox" id="clipAllow" /> Allow clipping</label>
+        <button type="button" id="clipRemoveMine">Remove my clips</button>
+        <small id="clipAllowNote">Off: clips of chat still work, but show Milliway instead of your name and stream.</small>
       </div>
     </div>
   </aside>
@@ -752,7 +824,7 @@
       preview.play().catch(() => {});
       setLiveUI(true);
       setStatus(okText, 'ok');
-      socket.emit('go-live', { kind });
+      socket.emit('go-live', { kind, allowClips: document.getElementById('clipAllow').checked }); // CHG-134
     }
 
     function handlePermError(err) {
@@ -1209,6 +1281,119 @@
       });
     })();
 
+  </script>
+
+  <script>
+    // CHG-134: Clips. Anyone can clip the last 30 s of Milliway chat; the server copies the lines (we only send an id range).
+    (function () {
+      var tray = document.getElementById('clipTray'), slot = document.getElementById('clipSlot'), box = document.getElementById('clipLines');
+      var cap = document.getElementById('clipCaption'), err = document.getElementById('clipErr'), saveBtn = document.getElementById('clipSave');
+      var edit = document.getElementById('clipEdit'), share = document.getElementById('clipShare');
+      var session = null, lines = [], a = 0, b = -1, lastId = null, ctx = { kind: 'room', title: 'Milliway' };
+      var BASE = 'https://chat.afirstflag.com';
+      socket.on('clips:session', function (d) { session = d && d.token; });
+      socket.on('clips:context', function (c) { if (c) ctx = c; });
+      function api(method, url, body) {
+        return fetch(url, { method: method, headers: Object.assign({ 'X-Clip-Session': session || '' }, body ? { 'Content-Type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { j._status = r.status; return j; }); });
+      }
+      function drawSlot(c) {
+        slot.textContent = ''; slot.className = 'mslot' + (c.kind === 'room' ? ' room' : '');
+        if (c.kind !== 'room') {
+          var bd = document.createElement('span'); bd.className = 'mbadge'; bd.textContent = c.kind === 'tailgate' ? '\u25CF LIVE on Rumble' : '\u25CF LIVE \u00B7 ' + c.broadcaster; slot.appendChild(bd);
+          slot.appendChild(document.createTextNode('(blurred stream frame)'));
+          var ti = document.createElement('span'); ti.className = 'mtitle'; ti.textContent = c.title || ''; slot.appendChild(ti);
+          var mu = document.createElement('span'); mu.className = 'mmute'; mu.textContent = '\uD83D\uDD07'; slot.appendChild(mu);
+        } else slot.textContent = 'Milliway';
+      }
+      function handle(txt, which) {
+        var h = document.createElement('div'); h.className = 'mhandle'; h.textContent = txt; h.dataset.which = which;
+        h.addEventListener('pointerdown', function (e) { e.preventDefault(); dragging = which; h.setPointerCapture && h.setPointerCapture(e.pointerId); });
+        return h;
+      }
+      var dragging = null;
+      function idxAt(y) { var els = box.querySelectorAll('.mline'); for (var i = 0; i < els.length; i++) { var r = els[i].getBoundingClientRect(); if (y < r.bottom) return i; } return els.length - 1; }
+      box.addEventListener('pointermove', function (e) { if (!dragging) return; var i = idxAt(e.clientY); if (dragging === 'a' && i <= b) { a = i; draw(); } if (dragging === 'b' && i >= a) { b = i; draw(); } });
+      document.addEventListener('pointerup', function () { dragging = null; });
+      function draw() {
+        box.textContent = '';
+        if (!lines.length) { var e = document.createElement('div'); e.className = 'mempty'; e.textContent = 'No chat in the last 30 seconds yet. Say something and try again.'; box.appendChild(e); saveBtn.disabled = true; return; }
+        saveBtn.disabled = false;
+        lines.forEach(function (l, i) {
+          if (i === a) box.appendChild(handle('\u25B2 drag to trim start', 'a'));
+          var d = document.createElement('div'); d.className = 'mline' + (i < a || i > b ? ' out' : '');
+          var n = document.createElement('b'); n.textContent = l.user; d.appendChild(n); d.appendChild(document.createTextNode(' ' + l.text));
+          d.addEventListener('click', function () { if (i < a) a = i; else if (i > b) b = i; else if (i - a < b - i) a = Math.min(i + 1, b); else b = Math.max(i - 1, a); draw(); });
+          box.appendChild(d);
+          if (i === b) box.appendChild(handle('\u25BC drag to trim end', 'b'));
+        });
+      }
+      function open() {
+        err.textContent = ''; cap.value = ''; edit.hidden = false; share.hidden = true;
+        tray.classList.add('open'); tray.setAttribute('aria-hidden', 'false');
+        api('GET', '/api/clips/recent').then(function (j) {
+          if (j._status !== 200) { lines = []; draw(); err.textContent = j.error === 'no_session' ? 'Reconnecting… try again in a moment.' : 'Could not load chat.'; return; }
+          ctx = j.context || ctx; lines = j.lines || []; a = 0; b = lines.length - 1; drawSlot(ctx); draw();
+        }).catch(function () { err.textContent = 'Could not load chat.'; });
+      }
+      function close() { tray.classList.remove('open'); tray.setAttribute('aria-hidden', 'true'); }
+      document.getElementById('clipBtn').addEventListener('click', function () { tray.classList.contains('open') ? close() : open(); });
+      document.getElementById('clipCancel').addEventListener('click', close);
+      document.getElementById('clipDone').addEventListener('click', close);
+      saveBtn.addEventListener('click', function () {
+        if (!lines.length) return;
+        saveBtn.disabled = true; err.textContent = '';
+        api('POST', '/api/clips', { fromId: lines[a].id, toId: lines[b].id, caption: cap.value }).then(function (j) {
+          saveBtn.disabled = false;
+          if (j._status !== 201) { err.textContent = { rate_limit: 'Slow down — too many clips. Try again in a few minutes.', members_only: 'Clipping is for members right now. Type /login.', bad_range: 'Those lines scrolled away. Open Clip again.', bad_caption: 'Caption: 80 characters max.' }[j.error] || 'Could not save the clip.'; return; }
+          lastId = j.id; showShare(BASE + '/c/' + j.id, cap.value);
+        }).catch(function () { saveBtn.disabled = false; err.textContent = 'Could not save the clip.'; });
+      });
+      function showShare(url, caption) {
+        edit.hidden = true; share.hidden = false;
+        var text = caption ? caption + ' — Milliway clip' : 'A moment from Milliway';
+        var u = encodeURIComponent(url), t = encodeURIComponent(text);
+        document.getElementById('clipLink').value = url;
+        document.getElementById('shX').href = 'https://x.com/intent/tweet?text=' + t + '&url=' + u;
+        document.getElementById('shTg').href = 'https://t.me/share/url?url=' + u + '&text=' + t;
+        document.getElementById('shFb').href = 'https://www.facebook.com/sharer/sharer.php?u=' + u;
+        document.getElementById('shRd').href = 'https://www.reddit.com/submit?url=' + u + '&title=' + t;
+        document.getElementById('shBs').href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(text + ' ' + url);
+        var nb = document.getElementById('shNative'); nb.disabled = !navigator.share;
+        nb.onclick = function () { if (navigator.share) navigator.share({ title: 'Milliway clip', text: text, url: url }).catch(function () {}); };
+      }
+      document.getElementById('clipCopy').addEventListener('click', function () {
+        var inp = document.getElementById('clipLink'), btn = this;
+        (navigator.clipboard ? navigator.clipboard.writeText(inp.value) : Promise.reject()).catch(function () { inp.select(); document.execCommand('copy'); }).then(function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1500); });
+      });
+      document.getElementById('clipDelete').addEventListener('click', function () {
+        if (!lastId || !confirm('Delete this clip? The link will stop working.')) return;
+        api('DELETE', '/api/clips/' + lastId).then(function (j) { if (j.ok) { lastId = null; close(); } });
+      });
+      // room line '🎬 <clipper> clipped a moment' with upvote + Open
+      var voteEls = {};
+      socket.on('clip:new', function (c) {
+        if (!c || !/^[A-Za-z0-9_-]{8}$/.test(c.id)) return;
+        var d = document.createElement('div'); d.className = 'msg system clipline'; d.dataset.clip = c.id;
+        var tx = document.createElement('span'); tx.className = 'ctext'; tx.textContent = '\uD83C\uDFAC ' + c.clipper + ' clipped a moment'; d.appendChild(tx);
+        var v = document.createElement('button'); v.type = 'button'; v.textContent = '\u25B2 ' + (c.votes || 0); voteEls[c.id] = v;
+        v.addEventListener('click', function () { api('POST', '/api/clips/' + c.id + '/vote').then(function (j) { if (j._status === 200) { v.textContent = '\u25B2 ' + j.votes; v.classList.toggle('voted', !!j.voted); } }); });
+        d.appendChild(v);
+        var o = document.createElement('a'); o.href = '/c/' + c.id; o.target = '_blank'; o.rel = 'noopener'; o.textContent = 'Open \u2197'; d.appendChild(o);
+        if (c.caption) { var cp = document.createElement('span'); cp.className = 'ccap'; cp.textContent = c.caption; d.appendChild(cp); }
+        messages.appendChild(d); messages.scrollTop = messages.scrollHeight;
+      });
+      socket.on('clip:votes', function (d) { var v = d && voteEls[d.id]; if (v) v.textContent = '\u25B2 ' + d.votes; });
+      socket.on('clip:removed', function (d) { var el = d && messages.querySelector('[data-clip="' + d.id + '"]'); if (el) el.remove(); });
+      // broadcaster: 'Allow clipping' (default off, changeable mid-stream) + 'Remove my clips'
+      var allow = document.getElementById('clipAllow');
+      allow.addEventListener('change', function () { if (amLive) socket.emit('clips:allow', { on: allow.checked }); });
+      socket.on('clips:allow', function (d) { if (d && d.ok) allow.checked = !!d.on; });
+      document.getElementById('clipRemoveMine').addEventListener('click', function () {
+        if (confirm('Remove your name and stream info from clips of your broadcasts? The chat lines stay.')) socket.emit('clips:remove-mine');
+      });
+      socket.on('clips:removed-mine', function (d) { setStatus('Removed your stream info from ' + ((d && d.count) || 0) + ' clip(s).'); });
+    })();
   </script>
 </body>
 </html>

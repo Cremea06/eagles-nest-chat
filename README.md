@@ -119,3 +119,27 @@ The Shop's **Need to talk?** dialog links to the national 988 Suicide & Crisis L
   4,000 characters. It is discarded when you leave, after 30 minutes of quiet, or when the server restarts, and it is
   never written to disk, logs, or the last-lines file. Each Neagle reply sends that recent conversation to the AI model
   provider along with your newest line. Ordinary (non-support) chat keeps no history.
+
+## Clips (CHG-134)
+
+Anyone in Milliway (guests and members) can press the gold **✂ Clip** button by the message box at any time, live or not.
+A tray slides up over the bottom of the chat (the chat keeps moving) with the last 30 seconds of room lines (up to 25).
+Trim lines from the top or bottom, add an optional caption (80 characters), and **Save**. You get a link
+`https://chat.afirstflag.com/c/ID` with share buttons, the room sees `🎬 NAME clipped a moment` with an upvote and Open.
+
+- **Stream slot:** during a Tailgate Party the card shows a Rumble placeholder and a **Watch on Rumble** link (the time
+  offset is approximate). A Go Live broadcaster's name and title appear only when that broadcaster turned on
+  **Allow clipping** (off by default, can be changed mid-stream). Otherwise the slot just says Milliway. No video yet.
+- **Privacy:** a clip stores the chosen chat lines exactly as the room saw them (display names and text, with times),
+  the caption, who clipped it (display name), when, the stream slot info above, and the upvote count (upvoters are kept
+  as member names or an anonymous per-connection key, only to stop double votes). **Usernames in the clip appear on the
+  public clip page and on the preview image that X, Telegram, Facebook and others show.** Clips are stored on the
+  server in `clips.json` (not in git, owner-only file) and preview images in `clips-img/`; no IP addresses are stored.
+- **Deleting:** the person who clipped can delete it from the share panel right after saving (a guest only during the same
+  visit; a member any time while signed in, via `DELETE /api/clips/ID`). A broadcaster's **Remove my clips** strips their
+  name and stream info from clips of their broadcasts (the chat lines stay). The admin can hide or delete any clip:
+  `curl -X DELETE -H "Authorization: Bearer $CLIPS_ADMIN_TOKEN" https://chat.afirstflag.com/api/clips/ID` (add `?hide=1`
+  to hide, `?hide=0` to unhide). Hidden clips never render. To have a clip removed, ask in Milliway or contact the shop.
+- Limits: 5 clips per 10 minutes per person, 3 per minute per network address (counted under a hash, in memory).
+  `CLIPS_MEMBERS_ONLY=1` in `.env` limits clipping and upvotes to members. Up to 5,000 clips are kept (oldest
+  un-upvoted first out). SQLite is the planned later home for clips.

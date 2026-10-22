@@ -1,3 +1,20 @@
+# CHG-134: Clips (save a moment of Milliway chat as a shareable card)
+
+Prepared 2026-10-22 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `01ab81b` (CHG-133).
+
+| File | Change |
+|---|---|
+| `lib/clips.js` (new) | Recent-line buffer (ids + times, 30 s / 25 lines shown, 5 min selectable), caption sanitizing (80 chars), stream-slot context (room / tailgate / golive), clip store (`clips.json`, 0600, atomic, cap 5000, oldest unvoted out), clip page `/c/ID` (escaped, OG + Twitter summary_large_image, strict CSP), PNG card `/c/ID.png` 1200x630 via `@resvg/resvg-js` + bundled DejaVu Sans (cache `clips-img/`), routes `GET /api/clips/recent`, `POST /api/clips`, `POST /api/clips/:id/vote`, `DELETE /api/clips/:id`. |
+| `server.js` | Every public room line gets `id` + `t` and goes into the buffer. Per-connection clip session (`clips:session`, header `X-Clip-Session`). `clips:context` pushes; Go Live carries `allowClips` (default off); `clips:allow` (only the current broadcaster) and `clips:remove-mine`. Room line events `clip:new`, `clip:votes`, `clip:removed`. |
+| `public/index.html` | Gold ✂ Clip button, tray (moment card, trim handles, caption, Cancel/Save), share panel (Copy, X, Telegram, Facebook, Reddit, Bluesky, Share…, Video coming soon, Delete), clip line with upvote/Open, Go Live 'Allow clipping' + 'Remove my clips'. |
+| `assets/fonts/` (new) | DejaVu Sans + Bold with license (PNG text on the VPS). |
+| `package.json` | `@resvg/resvg-js` (prebuilt binaries, no native build); `npm ci` needed on deploy. `test/clips.test.js` (14 tests). |
+| `.env.example`, `.gitignore`, `README.md` | `CLIPS_MEMBERS_ONLY`, `CLIPS_ADMIN_TOKEN`; `clips.json`, `clips-img/`; Clips privacy note. |
+
+Deploy (VPS, `~/chat-app`): `cp users.json users.json.bak-134`, `git pull`, `npm ci`, `pm2 restart "Eagles Nest"`.
+
+---
+
 # CHG-129: Short-term memory for support chats
 
 Prepared 2026-10-13 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `5e79d7b` (CHG-128).

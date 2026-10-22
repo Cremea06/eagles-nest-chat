@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/server-stats.test.js test/safe-link.test.js test/profile.test.js test/support.test.js test/support-memory.test.js test/member-count.test.js test/tailgate.test.js",
+    "test": "node --test test/server-stats.test.js test/safe-link.test.js test/profile.test.js test/support.test.js test/support-memory.test.js test/member-count.test.js test/tailgate.test.js test/clips.test.js",
     "test:live": "node --test test/safe-link.live.test.js"
   },
   "keywords": [],
@@ -12,11 +12,12 @@
   "license": "MIT",
   "description": "",
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
     "nodemailer": "^10.0.0",
-    "socket.io": "^4.8.3",
-    "cors": "^2.8.5",
-    "jsonwebtoken": "^9.0.2"
+    "socket.io": "^4.8.3"
   }
 }

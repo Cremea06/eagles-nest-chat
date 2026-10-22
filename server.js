@@ -20,6 +20,7 @@ const { profileRoute } = require('./lib/profile'); // CHG-115
 const support = require('./lib/support'); // CHG-128
 const { memberCountRoute } = require('./lib/memberCount'); // CHG-132
 const tailgate = require('./lib/tailgate'); // CHG-133
+const clips = require('./lib/clips'); // CHG-134
 
 const app = express();
 const server = http.createServer(app);
@@ -81,6 +82,47 @@ const tailgateState = tailgate.createTailgateState({ file: path.join(__dirname, 
 app.all('/api/tailgate', tailgate.tailgateRoute(tailgateState));
 tailgateState.onChange((st) => io.emit('tailgate:state', st));
 if (process.env.TAILGATE_POLL !== '0') tailgate.startPolling(tailgateState, tailgate.rumbleDetector());
+
+// CHG-134: Clips. Anyone in Milliway (guests + members; CLIPS_MEMBERS_ONLY=1 = members only) can clip the last 30 s of chat.
+// The browser gets a per-connection clip session on 'clips:session' and sends it as X-Clip-Session; the server copies
+// lines from its own buffer. clips.json + clips-img/ are gitignored. Admin: Bearer CLIPS_ADMIN_TOKEN (or TAILGATE_TOKEN).
+const clipBuffer = clips.createRecentBuffer();
+const clipStore = clips.createClipStore({ file: path.join(__dirname, 'clips.json') });
+const clipSessions = new Map(); // token -> socket
+let tgStartedAt = 0; let tgLastEmbed = null;
+function trackTailgateStart(st) {
+  const id = st && st.mode === 'tailgate' ? st.embedId : null;
+  if (id !== tgLastEmbed) { tgLastEmbed = id; tgStartedAt = id ? Date.now() : 0; }
+}
+trackTailgateStart(tailgateState.get());
+function clipContext() {
+  const st = tailgateState.get(); trackTailgateStart(st);
+  const list = [];
+  for (const [, info] of liveBroadcasters) list.push({ username: info.username, allowClips: !!info.allowClips });
+  return clips.computeContext({ broadcasters: list, tailgate: st, tgStartedAt });
+}
+function emitClipContext() { io.emit('clips:context', clipContext()); }
+tailgateState.onChange(() => emitClipContext());
+app.use(clips.clipsRouter({
+  store: clipStore,
+  buffer: clipBuffer,
+  getContext: clipContext,
+  imgDir: path.join(__dirname, 'clips-img'),
+  originOk: (o) => memberOriginOk(o),
+  whoami(req) {
+    const t = req.get('x-clip-session');
+    const sock = typeof t === 'string' && t.length === 43 ? clipSessions.get(t) : null;
+    if (!sock || !sock.connected || !sock.username) return null;
+    const member = isRegisteredAuthed(sock);
+    return { name: shownName(sock), member, key: member ? 'm:' + String(sock.username).toLowerCase() : 'g:' + crypto.createHash('sha256').update(t).digest('hex').slice(0, 24) };
+  },
+  onSaved(c) {
+    io.emit('clip:new', { id: c.id, clipper: c.clipper, caption: c.caption, votes: 0, url: '/c/' + c.id });
+    console.log('[clips] saved', c.id, c.clipper);
+  },
+  onVote(id, votes) { io.emit('clip:votes', { id, votes }); },
+  onRemoved(id) { io.emit('clip:removed', { id }); },
+}));
 
 app.use(cors({
   origin: [
@@ -487,15 +529,21 @@ function handleRep(socket, args) {
 // The code attempt goes back to the sender only (never broadcast, never in last5.txt, never logged).
 const editCodeOk = editMode.createCodeCheck(editMode.resolveCodeHash(process.env.EDIT_MODE_CODE_SHA256, console.warn));
 
+// CHG-134: every public room line gets a server id + time and goes into the clip buffer.
+function roomLine(username, message) {
+  const l = clipBuffer.add(username, message);
+  return { username, message, id: l.id, t: l.t };
+}
+
 function neagleSay(text) {
-  io.emit('chat message', { username: 'Neagle', message: text });
+  io.emit('chat message', roomLine('Neagle', text));
   last5.record('Neagle', text); // same as a normal Neagle line
 }
 
 // A normal public human line (room + last5.txt).
 function postHumanLine(socket, msg) {
   const displayName = shownName(socket); // CHG-055: 'WV Andy' for a member with a state
-  io.emit('chat message', { username: displayName, message: msg });
+  io.emit('chat message', roomLine(displayName, msg));
   last5.record(displayName, msg); // CHG-044: public human line
 }
 
@@ -1002,6 +1050,11 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   socket.emit('tailgate:state', tailgateState.get()); // CHG-133
+  // CHG-134: clip session for this connection (dropped on disconnect)
+  socket.clipToken = crypto.randomBytes(32).toString('base64url');
+  clipSessions.set(socket.clipToken, socket);
+  socket.emit('clips:session', { token: socket.clipToken, membersOnly: process.env.CLIPS_MEMBERS_ONLY === '1' });
+  socket.emit('clips:context', clipContext());
   console.log('A user connected');
   clearReg(socket);
 
@@ -1292,10 +1345,7 @@ io.on('connection', (socket) => {
       if (supportSession) reply = support.withCrisisReminder(reply, text); // CHG-128: 988 / 911 in code too
       if (supportSession) supportMemory.add(socket, 'assistant', reply); // CHG-129
       setTimeout(() => {
-        io.emit('chat message', {
-          username: 'Neagle',
-          message: reply
-        });
+        io.emit('chat message', roomLine('Neagle', reply)); // CHG-134: id + time for clips
         last5.record('Neagle', reply); // CHG-044 — public Neagle line
       }, 800 + Math.random() * 700);
     }
@@ -1308,13 +1358,29 @@ io.on('connection', (socket) => {
       return;
     }
     const kind = data.kind === 'screen' ? 'screen' : 'camera';
-    liveBroadcasters.set(socket.id, { username: socket.username, kind });
+    liveBroadcasters.set(socket.id, { username: socket.username, kind, allowClips: data.allowClips === true }); // CHG-134: default off
     socket.broadcast.emit('user-live', {
       socketId: socket.id,
       username: socket.username,
       kind
     });
     io.emit('system', `${socket.username} went live (${kind})`);
+    emitClipContext(); // CHG-134
+  });
+
+  // CHG-134: only the current broadcaster changes their own 'Allow clipping' (stream info in clips; chat clips never blocked).
+  socket.on('clips:allow', (data = {}) => {
+    const info = liveBroadcasters.get(socket.id);
+    if (!info) { socket.emit('clips:allow', { ok: false, error: 'not_live' }); return; }
+    info.allowClips = !!(data && data.on === true);
+    socket.emit('clips:allow', { ok: true, on: info.allowClips });
+    emitClipContext();
+  });
+  // CHG-134: 'Remove my clips' = strip this broadcaster's name/title from clips of their broadcasts (clips stay, slot -> Milliway).
+  socket.on('clips:remove-mine', () => {
+    if (!socket.username) return;
+    const n = clipStore.stripBroadcaster(socket.username);
+    socket.emit('clips:removed-mine', { count: n });
   });
 
   socket.on('end-live', () => {
@@ -1326,6 +1392,7 @@ io.on('connection', (socket) => {
       username: info.username
     });
     io.emit('system', `${info.username} ended the live stream`);
+    emitClipContext(); // CHG-134
   });
 
   socket.on('watch-live', (data = {}) => {
@@ -1353,7 +1420,9 @@ io.on('connection', (socket) => {
         username: live.username
       });
       socket.broadcast.emit('system', live.username + ' ended the live stream');
+      emitClipContext(); // CHG-134
     }
+    if (socket.clipToken) clipSessions.delete(socket.clipToken); // CHG-134
     if (socket.username) {
       socket.broadcast.emit('system', roomName(socket) + ' left the chat'); // CHG-055: state prefix
     }
