@@ -184,3 +184,51 @@ test('pngSafe strips emoji, keeps text', () => {
   assert.strictEqual(C.pngSafe('the room lost it 😂👍🏽 🇺🇸 ❤️'), 'the room lost it');
   assert.ok(!C.cardSvg({ id: 'abcdefgh', clipper: '<b>', caption: '&', lines: [{ user: '"', text: '<x>' }], context: { kind: 'room' } }).includes('<x>'));
 });
+
+// ---- CHG-135: share card keeps text out of the bottom-left (X's caption bar) + layout version in the cache key ----
+function cardPixels(c) {
+  const { Resvg } = require('@resvg/resvg-js');
+  const FD = path.join(__dirname, '..', 'assets', 'fonts');
+  const r = new Resvg(C.cardSvg(c), { fitTo: { mode: 'width', value: 1200 }, font: { fontFiles: [path.join(FD, 'DejaVuSans.ttf'), path.join(FD, 'DejaVuSans-Bold.ttf')], loadSystemFonts: false, defaultFontFamily: 'DejaVu Sans' } }).render();
+  return { w: r.width, h: r.height, px: r.pixels };
+}
+function bottomLeftBlank(c) { // X zone: x < 60 % of width, y >= 85 % of height; must be one flat colour (no glyphs)
+  const { w, h, px } = cardPixels(c);
+  const y0 = Math.floor(h * 0.85); const x1 = Math.floor(w * 0.6);
+  const ref = [px[(y0 * w) * 4], px[(y0 * w) * 4 + 1], px[(y0 * w) * 4 + 2]];
+  for (let y = y0; y < h; y++) for (let x = 0; x < x1; x++) { const i = (y * w + x) * 4; if (px[i] !== ref[0] || px[i + 1] !== ref[1] || px[i + 2] !== ref[2]) return false; }
+  return true;
+}
+test('CHG-135: card has no text in the bottom-left (even with long names/captions/stream titles); brand is at the top, clipped-by bottom-right', () => {
+  const lines = [1, 2, 3, 4, 5, 6].map((n) => ({ user: 'WWWWWWWWWWWWWWWWWWWW', text: 'MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM ' + n, t: 0 }));
+  const cases = [
+    { id: 'aaaaaaaa', clipper: 'Guest-User 6281', caption: '', context: { kind: 'room', title: 'Milliway' }, lines: [{ user: 'Neagle', text: 'hi', t: 0 }] },
+    { id: 'bbbbbbbb', clipper: 'W'.repeat(60), caption: 'Q'.repeat(80), context: { kind: 'golive', title: 'M'.repeat(80), broadcaster: 'Bob' }, lines },
+    { id: 'cccccccc', clipper: 'W'.repeat(60), caption: 'a b c d e f g h i j k l m n o p', context: { kind: 'tailgate', title: 'Tailgate Party' }, lines },
+  ];
+  for (const c of cases) assert.ok(bottomLeftBlank(c), 'text in bottom-left for ' + c.id);
+  const svg = C.cardSvg(cases[0]);
+  assert.ok(!/<text x="30"/.test(svg), 'old footer text at x=30 is gone');
+  assert.match(svg, /<text x="1170" y="\d+" text-anchor="end"[^>]*>chat\.afirstflag\.com<\/text>/); // brand, top-right
+  assert.match(svg, /<text x="1170" y="600" text-anchor="end"[^>]*>clipped by Guest-User 6281<\/text>/);
+  const m = />(clipped by [^<]*)</.exec(C.cardSvg(cases[1]));
+  assert.ok(m && [...m[1]].length <= 40);
+  const { w, h } = cardPixels(cases[0]); assert.deepStrictEqual([w, h], [1200, 630]);
+  const png = C.renderPng(cases[0]); assert.strictEqual(png.readUInt32BE(16), 1200); assert.strictEqual(png.readUInt32BE(20), 630);
+});
+
+test('CHG-135: card layout version is in the cache key, so PNGs cached by the old layout regenerate', () => {
+  const crypto = require('crypto');
+  const c = { id: 'dddddddd', clipper: 'Guest-User 6281', caption: 'x', hidden: false, context: { kind: 'room', title: 'Milliway' }, lines: [{ user: 'Neagle', text: 'hi', t: 0 }] };
+  const legacy = crypto.createHash('sha1').update(JSON.stringify([c.caption, c.hidden, c.context, c.lines, c.clipper])).digest('hex').slice(0, 10); // CHG-134 key
+  assert.ok(C.CARD_LAYOUT >= 2);
+  assert.notStrictEqual(C.cardVersion(c), legacy);
+  const dir = tmp(); fs.mkdirSync(dir, { recursive: true });
+  const stale = path.join(dir, c.id + '-' + legacy + '.png'); fs.writeFileSync(stale, 'STALE-OLD-LAYOUT');
+  const cache = C.createPngCache(dir);
+  const png = cache.get(c);
+  assert.strictEqual(png.slice(0, 8).toString('hex'), '89504e470d0a1a0a'); // fresh PNG, not the stale bytes
+  assert.ok(!fs.existsSync(stale), 'stale file removed');
+  assert.deepStrictEqual(fs.readdirSync(dir), [c.id + '-' + C.cardVersion(c) + '.png']);
+  assert.strictEqual(cache.get(c).equals(png), true); // second call is a cache hit with identical bytes
+});

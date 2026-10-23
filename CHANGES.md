@@ -1,3 +1,16 @@
+# CHG-135: Share card keeps text out of the bottom-left (X's caption bar)
+
+Prepared 2026-10-22 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `d344615` (CHG-134).
+
+| File | Change |
+|---|---|
+| `lib/clips.js` | X overlays its own caption bar ("Milliway clip by NAME") on the bottom-left of the share card and hid the footer text. The card now has no text in the bottom-left: the brand `chat.afirstflag.com` (+ small `Milliway clip — afirstflag`) moved to the top-right of the chat panel, the footer strip is decorative on its left, and `clipped by NAME` stays bottom-right (shortened by measured width so a long name never reaches the left 60 %). Layout version `CARD_LAYOUT = 2` is now part of the PNG cache key (`clips-img/ID-VERSION.png`), so every PNG cached by the CHG-134 layout regenerates on its next view. Size (1200x630), fonts, emoji stripping and caching are unchanged. |
+| `test/clips.test.js` | 2 new tests (87 total): bottom-left (x < 60 %, y >= 85 %) renders as one flat colour for normal, very long name/caption/title cases; stale legacy-keyed cache file is replaced and removed. |
+
+Deploy (VPS, `~/chat-app`): `git pull`, `pm2 restart "Eagles Nest"` (no `npm ci`, no `.env` change). Rollback: `git revert <hash>`.
+
+---
+
 # CHG-134: Clips (save a moment of Milliway chat as a shareable card)
 
 Prepared 2026-10-22 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `01ab81b` (CHG-133).
