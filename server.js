@@ -21,6 +21,8 @@ const support = require('./lib/support'); // CHG-128
 const { memberCountRoute } = require('./lib/memberCount'); // CHG-132
 const tailgate = require('./lib/tailgate'); // CHG-133
 const clips = require('./lib/clips'); // CHG-134
+const accountDelete = require('./lib/accountDelete'); // CHG-138
+const { rateKey } = require('./lib/safeLink');
 
 const app = express();
 const server = http.createServer(app);
@@ -201,6 +203,12 @@ function saveUsers(users) {
 let registeredUsers = loadUsers();
 console.log(`Loaded ${registeredUsers.length} registered users`);
 
+// CHG-138: names freed by /delete stay held for 90 days (tombstones.json, gitignored, no email), and every NEW record
+// starts at a random tokenVersion, so an old nest_member cookie can never sign in as a later owner of the same name.
+const TOMBSTONES_PATH = path.join(__dirname, 'tombstones.json');
+const tombstones = accountDelete.createTombstones({ file: TOMBSTONES_PATH });
+function newTokenVersion() { return crypto.randomInt(1, 2147483647); }
+
 // CHG-115: read-only public profiles. GET /api/profile/:username -> {username, tier, joined?} or a plain 404
 // (lib/profile.js: CHG-051 fold() lookup, safe fields only, 30/min per visitor, 60 s cache).
 // GET /u/:username serves public/profile.html (+ profile.js/.css) with a strict CSP. Same-origin, no cookies read.
@@ -332,7 +340,8 @@ function handleCommand(socket, msg) {
       '/logout              - Sign out on every device',
       '/mute <username>     - Mute a user (temporary)',
       '/nest                - Mint a Nest World pass (registered members)',
-      '/rep <STATE>         - Show your US state before your name, e.g. /rep WV (members)'
+      '/rep <STATE>         - Show your US state before your name, e.g. /rep WV (members)',
+      '/delete              - Delete your account: emails you a code, then /auth <code> (members)'
     ].join('\n');
     socket.emit('system', helpText);
     return true;
@@ -470,6 +479,11 @@ function handleCommand(socket, msg) {
     return true;
   }
 
+  if (command === '/delete') { // CHG-138
+    handleDelete(socket).catch((err) => console.error('[account] delete request failed', err && (err.code || err.message)));
+    return true;
+  }
+
   socket.emit('system', `Unknown command: ${command}. Type /help for a list.`);
   return true;
 }
@@ -520,6 +534,121 @@ function handleRep(socket, args) {
     }
   }
   editModeRefresh(); // CHG-058: the EDIT MODE tooltip lists shown names
+}
+
+// CHG-138 /delete: a signed-in member types /delete, gets a fresh emailed code and the system line
+// 'auth code sent. /auth code to delete account', then types /auth <code> as a normal chat line (the existing
+// client mechanism) to delete the account for good. Codes are purpose-tagged and kept apart from login codes
+// (lib/accountDelete.js): 10 minutes, 5 tries (AUTH_MAX_TRIES), single use. Guests get no code. The owner account is
+// refused here (admin route instead). Requests are rate limited per account and per network address (hashed, memory only).
+const deleteCodes = accountDelete.createDeleteCodes({ makeCode: makeAuthCode, maxTries: AUTH_MAX_TRIES });
+const deleteReqUserLim = createRateLimiter({ limit: 3, windowMs: 10 * 60 * 1000 });
+const deleteReqIpLim = createRateLimiter({ limit: 10, windowMs: 10 * 60 * 1000 });
+const DELETE_USAGE = '/auth code to delete account';
+
+function memberSockets(lowerName) {
+  const out = [];
+  for (const [, s] of io.of('/').sockets) {
+    if (isRegisteredAuthed(s) && String(s.username || '').toLowerCase() === lowerName) out.push(s);
+  }
+  return out;
+}
+
+async function handleDelete(socket) {
+  const user = isRegisteredAuthed(socket) ? findUserByName(socket.username) : null;
+  if (!user) {
+    socket.emit('system', 'Only signed-in members can use /delete. Type /login to sign in first.'); // no code, nothing leaked
+    return;
+  }
+  if (usernameRule.isOwnerAccountEmail(user.email)) {
+    socket.emit('system', 'This account cannot be deleted from chat.'); // generic; the owner uses the admin route
+    return;
+  }
+  const key = String(user.username).toLowerCase();
+  const ipKey = 'ip:' + crypto.createHash('sha256').update(rateKey(socket.request, process.env.TRUST_PROXY === '1')).digest('hex').slice(0, 32);
+  if (!deleteReqUserLim.hit(key).ok || !deleteReqIpLim.hit(ipKey).ok) {
+    socket.emit('system', 'Too many requests. Try again later.');
+    return;
+  }
+  const code = deleteCodes.issue(key);
+  logAuthCode('delete', user.email, user.username, code);
+  try {
+    await sendAuthEmail(user.email, code, 'delete');
+  } catch (err) {
+    console.error('[mail fail]', err.code || err.message); // SMTP messages can echo the address
+    deleteCodes.clear(key); // no email went out: do not leave a live code behind
+    socket.emit('system', 'Could not send the code. Try again later.');
+    return;
+  }
+  socket.emit('system', accountDelete.CONFIRM_TEXT);
+}
+
+// -> true when a member's whole footprint was removed
+function handleDeleteCode(socket, code) {
+  const user = findUserByName(socket.username);
+  const key = String(socket.username).toLowerCase();
+  if (!user || usernameRule.isOwnerAccountEmail(user.email)) { deleteCodes.clear(key); return; }
+  const r = deleteCodes.check(key, code);
+  if (r === 'wrong') { socket.emit('system', 'Wrong code. ' + DELETE_USAGE); return; }
+  if (r === 'locked') { console.log('[account] too many wrong delete codes', socket.username); socket.emit('system', 'Too many wrong codes. Type /delete to get a new code.'); return; }
+  if (r === 'expired') { socket.emit('system', 'That code expired. Type /delete to get a new code.'); return; }
+  if (r !== 'ok') { socket.emit('system', 'Unknown command: /auth. Type /help for a list.'); return; }
+  try {
+    deleteMember(user);
+  } catch (err) {
+    console.error('[account] delete failed', user.username, err && (err.code || err.message));
+    socket.emit('system', 'Could not delete the account right now. Nothing was changed. Try again later.');
+  }
+}
+
+// Order matters: back up users.json, hold the name, remove the record (any failure here aborts and nothing is lost),
+// then clean up around it. All synchronous, so no other save can interleave.
+function deleteMember(user) {
+  const name = user.username;
+  const lc = String(name).toLowerCase();
+  const idx = registeredUsers.indexOf(user);
+  if (idx < 0) return;
+  accountDelete.backupFileAtomic(USERS_PATH, USERS_PATH + '.bak-delete'); // one rolling copy, replaced by the next deletion
+  tombstones.add(name); // throws if it cannot persist: abort before anything is removed
+  registeredUsers.splice(idx, 1);
+  try {
+    saveUsers(registeredUsers);
+  } catch (err) {
+    registeredUsers.splice(idx, 0, user); // put it back; the tombstone only holds the name of an account that still exists
+    throw err;
+  }
+
+  // clips, votes, quoted names, cached cards
+  const matchUser = accountDelete.nameMatcher(name);
+  const res = clipStore.purgeMember({ key: 'm:' + lc, broadcaster: name, matchUser, former: accountDelete.FORMER });
+  const png = clips.createPngCache(path.join(__dirname, 'clips-img'));
+  for (const id of new Set([...res.removed, ...res.anonymized, ...res.stripped])) png.drop(id);
+  for (const id of res.removed) io.emit('clip:removed', { id });
+  for (const id of res.voted) { const c = clipStore.get(id); if (c) io.emit('clip:votes', { id, votes: (c.voters || []).length }); }
+  clipBuffer.redact(matchUser, accountDelete.FORMER);
+  last5.redact(matchUser, accountDelete.FORMER);
+
+  // pending one-time claims and /nest passes
+  for (const [claim, info] of memberClaims) if (String(info.username).toLowerCase() === lc) memberClaims.delete(claim);
+  nestMints.delete(lc);
+  const nestSock = nestByHandle.get(lc);
+  if (nestSock) nestSock.disconnect(true);
+
+  // sockets: every signed-in tab of this member ends (the disconnect handler clears live state and edit mode);
+  // presence is cleared right here too. Guest tabs that were mid-login for this account just lose the pending state.
+  for (const [, s] of io.of('/').sockets) {
+    if (String(s.pendingUsername || '').toLowerCase() === lc && !isRegisteredAuthed(s)) {
+      s.authState = null; s.pendingEmail = null; s.pendingUsername = null;
+    }
+  }
+  for (const s of memberSockets(lc)) {
+    if (milliwayPresence.delete(s.id)) io.emit('presence:leave', { id: s.id });
+    s.emit('system', 'Your account has been deleted.');
+    s.emit('account:deleted'); // the page clears the cookie and reloads as a guest
+    s.disconnect(true);
+  }
+  editModeRefresh();
+  console.log('[account] deleted', name, 'clips=' + res.removed.length, 'votes=' + res.voted.length, 'anonymized=' + res.anonymized.length);
 }
 
 // CHG-058 "Neagle go into edit mode": a scripted flow run by the server. Neagle's AI is never called for it and
@@ -638,7 +767,7 @@ function handleRegistrationInput(socket, text) {
         socket.emit('system', nameCheck.reason);
         return true;
       }
-      if (findUserByEmail(socket.reg.email) || findUserByName(username)) {
+      if (findUserByEmail(socket.reg.email) || findUserByName(username) || tombstones.has(username)) {
         clearReg(socket);
         socket.emit('system', 'That account already exists.');
         return true;
@@ -647,7 +776,8 @@ function handleRegistrationInput(socket, text) {
         username,
         email: socket.reg.email,
         createdAt: new Date().toISOString(),
-        flagholder: !!socket.isFlagholder
+        flagholder: !!socket.isFlagholder,
+        tokenVersion: newTokenVersion() // CHG-138
       });
       saveUsers(registeredUsers);
       const saved = socket.reg.email;
@@ -990,15 +1120,18 @@ const mailer = nodemailer.createTransport({
 const supportMemory = support.createSupportMemory(); // CHG-129: per-socket, memory only, 30 min TTL
 const supportSessions = support.createSupport({ say: (text) => neagleSay(text), memory: supportMemory });
 
-async function sendAuthEmail(to, code) {
+async function sendAuthEmail(to, code, purpose) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     throw new Error('SMTP env missing');
   }
+  const del = purpose === 'delete'; // CHG-138: same mailer and path, different words
   await mailer.sendMail({
     from: process.env.MAIL_FROM || process.env.SMTP_USER,
     to,
-    subject: 'Milliway sign-in code',
-    text: 'Your code is ' + code + '. It expires in 10 minutes. In chat type /auth ' + code
+    subject: del ? 'Milliway account deletion code' : 'Milliway sign-in code',
+    text: del
+      ? 'Your code to delete your Milliway account is ' + code + '. It expires in 10 minutes. In chat type /auth ' + code + '. If you did not ask for this, ignore this email and nothing happens.'
+      : 'Your code is ' + code + '. It expires in 10 minutes. In chat type /auth ' + code
   });
 }
 
@@ -1168,7 +1301,7 @@ io.on('connection', (socket) => {
         return;
       }
       const name = nameCheck.name;
-      if (isGuestName(name) || findUserByName(name)) {
+      if (isGuestName(name) || findUserByName(name) || tombstones.has(name)) { // CHG-138: freed names are held 90 days
         socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
         socket.priv = null;
         return;
@@ -1187,7 +1320,7 @@ io.on('connection', (socket) => {
         socket.priv = null;
         return;
       }
-      if (!isValidEmail(email) || findUserByEmail(email) || findUserByName(socket.priv.username)) {
+      if (!isValidEmail(email) || findUserByEmail(email) || findUserByName(socket.priv.username) || tombstones.has(socket.priv.username)) {
         socket.emit('priv:result', { ok: false, text: 'Fail. Closing in 5 seconds' });
         socket.priv = null;
         return;
@@ -1198,6 +1331,7 @@ io.on('connection', (socket) => {
         email,
         createdAt: new Date().toISOString(),
         verified: false,
+        tokenVersion: newTokenVersion(), // CHG-138
         pendingCode: code,
         pendingUntil: Date.now() + 10 * 60 * 1000
       });
@@ -1221,6 +1355,13 @@ io.on('connection', (socket) => {
     const code = String(data.code || '').trim();
     const guest = isGuestName(socket.username) && socket.authState !== 'pending';
     console.log('[auth:try]', AUTH_CODE_LOG ? code : '(hidden)', socket.authState, maskEmail(socket.pendingEmail), socket.username);
+
+    // CHG-138: a signed-in member with a delete code outstanding: /auth <code> is checked against the DELETE code only.
+    // Login codes (users.json pendingCode) are never consulted here, and the sign-in path below never sees delete codes.
+    if (code && isRegisteredAuthed(socket) && deleteCodes.has(String(socket.username).toLowerCase())) {
+      handleDeleteCode(socket, code);
+      return;
+    }
 
     if (guest || socket.authState !== 'pending' || !code) {
       socket.emit('system', 'Unknown command: /auth. Type /help for a list.');
@@ -1548,7 +1689,7 @@ nestNs.on('connection', (socket) => {
   });
 });
 
-const PORT = 3000;
+const PORT = Number(process.env.NEST_PORT) || 3000; // CHG-138: NEST_PORT only for local tests; production keeps 3000
 server.listen(PORT, () => {
   console.log('Milliway chat running on port ' + PORT);
 });

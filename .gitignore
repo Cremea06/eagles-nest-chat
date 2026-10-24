@@ -8,3 +8,7 @@ tailgate.json.tmp
 clips.json
 clips.json.tmp
 /clips-img/
+# CHG-138: account deletion
+tombstones.json
+tombstones.json.tmp
+*.bak-*

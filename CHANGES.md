@@ -1,3 +1,21 @@
+# CHG-138: /delete (a member deletes their own account)
+
+Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `2b4cead` (CHG-135).
+
+| File | Change |
+|---|---|
+| `lib/accountDelete.js` (new) | Purpose-tagged delete codes (own in-memory store, 10 min, single use, 5 tries), 90-day name tombstones (`tombstones.json`, atomic, no email), atomic file backup, display-name matcher. |
+| `server.js` | `/delete` (members only; guests get no code; owner account refused; 3/account and 10/address per 10 min), the system line `auth code sent. /auth code to delete account`, `auth:try` checks the delete code first for a signed-in member who has one outstanding (the sign-in path is untouched). Delete = back up `users.json` to `users.json.bak-delete` (atomic), hold the name, remove the record, purge clips/PNGs/votes, anonymize quoted names, end sockets/`/nest`/presence/claims, audit line. Registration refuses a tombstoned name; every new record starts at a random `tokenVersion`. Mail text for the delete code. `NEST_PORT` (tests only). `/help` lists `/delete`. |
+| `lib/clips.js`, `lib/last5.js`, `lib/username.js` | `purgeMember` (one save), buffer/last5 `redact`, `isOwnerAccountEmail` (hash only). |
+| `public/index.html` | `account:deleted` clears the cookie and reloads as a guest. |
+| `.gitignore` | `tombstones.json`, `tombstones.json.tmp`, `*.bak-*`. |
+| `test/account-delete.test.js`, `test/account-delete.server.test.js` (new) | 16 tests: helpers with fake clocks, plus a real server on temp data with a fake local SMTP. `npm test` = 103. |
+| `README.md` | Deleting your account: flow, what is purged, what stays. |
+
+Deploy (VPS, `~/chat-app`): `cp users.json users.json.bak-138`, `git pull`, `pm2 restart "Eagles Nest"` (no `npm ci`, no `.env` change). Rollback: `git revert <hash>` (a deleted account does not come back; restore from `users.json.bak-delete` while the server is stopped).
+
+---
+
 # CHG-135: Share card keeps text out of the bottom-left (X's caption bar)
 
 Prepared 2026-10-22 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `d344615` (CHG-134).

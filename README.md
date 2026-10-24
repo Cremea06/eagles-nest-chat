@@ -139,7 +139,35 @@ Trim lines from the top or bottom, add an optional caption (80 characters), and 
   visit; a member any time while signed in, via `DELETE /api/clips/ID`). A broadcaster's **Remove my clips** strips their
   name and stream info from clips of their broadcasts (the chat lines stay). The admin can hide or delete any clip:
   `curl -X DELETE -H "Authorization: Bearer $CLIPS_ADMIN_TOKEN" https://chat.afirstflag.com/api/clips/ID` (add `?hide=1`
-  to hide, `?hide=0` to unhide). Hidden clips never render. To have a clip removed, ask in Milliway or contact the shop.
+  to hide, `?hide=0` to unhide). Hidden clips never render. To have a clip removed, ask in Milliway or contact the shop. Members can also delete their whole account, clips included (see below).
 - Limits: 5 clips per 10 minutes per person, 3 per minute per network address (counted under a hash, in memory).
   `CLIPS_MEMBERS_ONLY=1` in `.env` limits clipping and upvotes to members. Up to 5,000 clips are kept (oldest
   un-upvoted first out). SQLite is the planned later home for clips.
+
+## Deleting your account (CHG-138)
+
+A signed-in member can delete their own account from the chat. Type `/delete`: the server emails a fresh code to the address
+on the account (same mailer as sign-in) and shows you `auth code sent. /auth code to delete account`. Then type
+`/auth <code>` as a normal chat line. Nothing else asks for confirmation, so the emailed code is the confirmation.
+
+- **Codes:** a delete code is a different kind of code from a sign-in code. A sign-in code can never delete an account and a
+  delete code can never sign anyone in. 10 minutes, single use, 5 wrong tries void it (type `/delete` again for a new one).
+  The code is kept in server memory only (not in `users.json`). Requests are limited to 3 per account and 10 per network
+  address (hashed, memory only) per 10 minutes. Guests get no code. The owner account is refused (the owner uses the admin route).
+- **What is purged at once:** the member's record in `users.json` (username, email, join date, state, sign-in fields); every
+  clip they made (`clips.json`) with its cached card image in `clips-img/`; their upvotes on other clips (tallies drop with
+  them); their open chat tabs, Go Live broadcast, `/nest` pass and live `/nest` session; their presence in the room; any
+  waiting sign-in claim. The sign-in cookie stops working (the page also clears it). Other people's clips that show their
+  name on a quoted line (`Name`, `WV Name`, `Name (flagholder)`) now show `Former member`, in the saved clips, the live clip
+  buffer and `/last5.txt`; a Go Live clip that named them as broadcaster goes back to the plain Milliway slot.
+- **What stays:** words typed inside someone else's message (for example "hi Alice") are not rewritten; content other people
+  already saw or copied; server logs (pm2) that include the username (never the email in full); and `users.json.bak-delete`,
+  one rolling copy of `users.json` taken just before each deletion (it is replaced by the next deletion; delete it by hand
+  when you do not need it, and keep `users.json.bak-*` files out of git, they are gitignored). Backups made by hand on the VPS are
+  yours to rotate.
+- **Name hold:** the username is held for 90 days in `tombstones.json` (gitignored; names and dates only, no email), so
+  nobody can take it straight away. New accounts also start at a random `tokenVersion`, so an old sign-in cookie can never
+  sign in as a later owner of the same name.
+- **Audit:** the log gets one line, `[account] deleted NAME clips=N votes=M anonymized=K`. No email, no code.
+- Tests: `test/account-delete.test.js` (helpers) and `test/account-delete.server.test.js` (a real server on temp data and a
+  fake local mail server; nothing is ever sent). `NEST_PORT` (default 3000) exists only so tests can pick a port.

@@ -1084,6 +1084,11 @@
       memberPost('/api/member/logout');
     });
 
+    // CHG-138: the account was deleted (/delete + /auth): clear the cookie, then come back as a guest
+    socket.on('account:deleted', () => {
+      memberPost('/api/member/logout').then(() => setTimeout(() => location.reload(), 1500));
+    });
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       if (!input.value) return;
