@@ -1,3 +1,16 @@
+# CHG-139: 'My profile' pill moves into Who's here (visual only)
+
+Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `5220c7e` (CHG-138).
+
+| File | Change |
+|---|---|
+| `public/index.html` | The 'My profile' pill left the Milliway header (the Neagle badge stays) and now sits in the middle of the Who's here header row, between the title and 'N online' (3-column grid, pill centred). Members: the same blue link to `/u/<name>`, set from the existing `joined` event (no new endpoint), so it updates live after `/login` + `/auth`. Guests (and after `/logout`, which reloads the page): the same pill as a dimmed placeholder, no `href`, `aria-disabled="true"`, tooltip 'Sign in to get a profile page', so nothing jumps on sign-in. Narrow screens (320 px+): no overflow. |
+| `test/profile.test.js` | Test 14 rewritten for the new markup (placeholder by default, pill gone from the Milliway header, member link / guest placeholder code). Still 103 tests. |
+
+No server code, no `/login` or `/auth` change. Express serves `public/` from disk, so deploy is `git pull`; a pm2 restart is not needed. Rollback: `git revert <hash>`.
+
+---
+
 # CHG-138: /delete (a member deletes their own account)
 
 Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `2b4cead` (CHG-135).

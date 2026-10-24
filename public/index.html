@@ -149,12 +149,14 @@
       white-space: nowrap;
     }
     #editModeChip[hidden] { display: none; }
-    /* CHG-115: 'My profile' link, members only */
+    /* CHG-115 / CHG-139: 'My profile' pill, now in the middle of the Who's here header row.
+       Members: a blue link to /u/<name>. Guests: the same pill dimmed and inactive (no href), so nothing jumps on sign-in. */
     #myProfile { font-size: 0.75rem; font-weight: 600; color: #7cc4ff; text-decoration: none; border: 1px solid rgba(124, 196, 255, 0.35);
       border-radius: 999px; padding: 0.35rem 0.7rem; white-space: nowrap; }
     #myProfile:hover { background: rgba(124, 196, 255, 0.12); }
-    #myProfile[hidden] { display: none; }
-    #chat > h2 { flex-wrap: wrap; row-gap: 8px; } /* narrow screens: the pill drops to a second row instead of overflowing */
+    #myProfile.is-placeholder { color: #a0aec0; border-color: rgba(160, 174, 192, 0.3); opacity: 0.45; cursor: not-allowed; }
+    #myProfile.is-placeholder:hover { background: none; }
+    #chat > h2 { flex-wrap: wrap; row-gap: 8px; } /* narrow screens: the EDIT MODE / Neagle chips drop to a second row instead of overflowing */
 
     #messages {
       flex: 1;
@@ -298,7 +300,10 @@
 
     /* CHG-036 — Who's here presence card */
     #whoCard { display: block; padding: 12px; position: static; }
-    #whoCard .live-head { margin-bottom: 6px; }
+    #whoCard .live-head { margin-bottom: 6px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; } /* CHG-139: title left, My profile pill centred, count right */
+    #whoCard .live-head h3 { min-width: 0; white-space: nowrap; }
+    #whoCard .live-head #whoCount { justify-self: end; white-space: nowrap; }
+    @media (max-width: 380px) { #myProfile { padding: 0.3rem 0.55rem; } #whoCard .live-head { gap: 6px; } }
     #whoCount { font-size: 0.75rem; color: #a0aec0; }
     #whoList { list-style: none; margin: 0; padding: 0 4px; display: grid; gap: 4px; }
     #whoList li {
@@ -590,7 +595,6 @@
       Milliway
       <span id="editModeChip" hidden>EDIT MODE</span>
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
-      <a id="myProfile" hidden target="_blank" rel="noopener">My profile</a>
     </h2>
     <div id="messages"></div>
     <form id="form">
@@ -628,6 +632,7 @@
   <aside id="whoCard" class="glass">
     <div class="live-head">
       <h3>Who’s here</h3>
+      <a id="myProfile" class="is-placeholder" aria-disabled="true" title="Sign in to get a profile page">My profile</a>
       <span id="whoCount">0 online</span>
     </div>
     <ul id="whoList"></ul>
@@ -969,17 +974,26 @@
       window.guestName = data && data.username;
     });
 
-    // CHG-115: 'My profile' link for members (guests are 'Guest-User NNNN'); hidden again for guests.
+    // CHG-115: 'My profile' link for members (guests are 'Guest-User NNNN').
+    // CHG-139: lives in the Who's here header; guests get the same pill dimmed and inactive (no href) instead of hiding it.
     socket.on('joined', (data) => {
       const n = String((data && data.username) || '');
       const a = document.getElementById('myProfile');
       if (!a) return;
       if (n && !/^guest-user \d+$/i.test(n)) {
         a.href = '/u/' + encodeURIComponent(n);
-        a.hidden = false;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.classList.remove('is-placeholder');
+        a.removeAttribute('aria-disabled');
+        a.removeAttribute('title');
       } else {
-        a.hidden = true;
         a.removeAttribute('href');
+        a.removeAttribute('target');
+        a.removeAttribute('rel');
+        a.classList.add('is-placeholder');
+        a.setAttribute('aria-disabled', 'true');
+        a.title = 'Sign in to get a profile page';
       }
     });
 

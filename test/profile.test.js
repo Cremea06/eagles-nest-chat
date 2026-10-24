@@ -179,9 +179,18 @@ test('13. profile page script: textContent only, no innerHTML / eval / document.
   assert.ok(js.includes("credentials: 'omit'"));
 });
 
-test("14. chat UI: hidden 'My profile' link, shown only for members on 'joined'", () => {
+test("14. chat UI: 'My profile' pill sits in the Who's here header; link for members, dimmed placeholder for guests (CHG-139)", () => {
   const html = fs.readFileSync(path.join(ROOT, 'public', 'index.html'), 'utf8');
-  assert.match(html, /<a id="myProfile" hidden target="_blank" rel="noopener">My profile<\/a>/);
+  // placeholder markup by default (guest): no href, aria-disabled, tooltip; between the title and the online count
+  assert.match(html, /<h3>Who’s here<\/h3>\s*<a id="myProfile" class="is-placeholder" aria-disabled="true" title="Sign in to get a profile page">My profile<\/a>\s*<span id="whoCount">/);
+  assert.doesNotMatch(html, /<a id="myProfile" hidden/);
+  // gone from the Milliway header; the Neagle badge stays
+  const h2 = html.slice(html.indexOf('<h2>\n      Milliway'), html.indexOf('</h2>', html.indexOf('<h2>\n      Milliway')));
+  assert.ok(h2.includes('id="usageChip"') && !h2.includes('myProfile'));
+  // member: link set on 'joined'; guest: placeholder restored
   assert.match(html, /a\.href = '\/u\/' \+ encodeURIComponent\(n\)/);
   assert.match(html, /!\/\^guest-user \\d\+\$\/i\.test\(n\)/);
+  assert.match(html, /a\.classList\.remove\('is-placeholder'\)/);
+  assert.match(html, /a\.classList\.add\('is-placeholder'\)/);
+  assert.match(html, /a\.removeAttribute\('href'\)/);
 });
