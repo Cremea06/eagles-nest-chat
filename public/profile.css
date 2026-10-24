@@ -26,3 +26,10 @@ h1 { font-size: 1.8rem; overflow-wrap: anywhere; margin-bottom: 1rem; }
 .back { margin-top: 1.8rem; }
 .back a { color: #7cc4ff; text-decoration: none; }
 .back a:hover { text-decoration: underline; }
+/* CHG-140 — claimed X handle (unverified) */
+.xline { margin-top: 0.5rem; color: #cbd5e1; overflow-wrap: anywhere; }
+.xline a { color: #7cc4ff; text-decoration: none; }
+.xline a:hover { text-decoration: underline; }
+.xunv { color: #94a3b8; font-size: 0.9rem; cursor: help; }
+.xnote { margin-top: 0.25rem; color: #94a3b8; font-size: 0.78rem; }
+.xline[hidden], .xnote[hidden] { display: none; }

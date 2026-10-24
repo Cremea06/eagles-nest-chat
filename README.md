@@ -154,7 +154,7 @@ on the account (same mailer as sign-in) and shows you `auth code sent. /auth cod
   delete code can never sign anyone in. 10 minutes, single use, 5 wrong tries void it (type `/delete` again for a new one).
   The code is kept in server memory only (not in `users.json`). Requests are limited to 3 per account and 10 per network
   address (hashed, memory only) per 10 minutes. Guests get no code. The owner account is refused (the owner uses the admin route).
-- **What is purged at once:** the member's record in `users.json` (username, email, join date, state, sign-in fields); every
+- **What is purged at once:** the member's record in `users.json` (username, email, join date, state, claimed X handle, sign-in fields); every
   clip they made (`clips.json`) with its cached card image in `clips-img/`; their upvotes on other clips (tallies drop with
   them); their open chat tabs, Go Live broadcast, `/nest` pass and live `/nest` session; their presence in the room; any
   waiting sign-in claim. The sign-in cookie stops working (the page also clears it). Other people's clips that show their
@@ -171,3 +171,29 @@ on the account (same mailer as sign-in) and shows you `auth code sent. /auth cod
 - **Audit:** the log gets one line, `[account] deleted NAME clips=N votes=M anonymized=K`. No email, no code.
 - Tests: `test/account-delete.test.js` (helpers) and `test/account-delete.server.test.js` (a real server on temp data and a
   fake local mail server; nothing is ever sent). `NEST_PORT` (default 3000) exists only so tests can pick a port.
+
+## Claimed X handle (CHG-140, proof of concept)
+
+A signed-in member can show an X (Twitter) handle on their profile page. It is **self-declared and unverified**: Milliway
+never calls X, never fetches anything from X and never checks that the handle exists or belongs to the member. Start of a
+possible "port my X profile" feature; for now it is only the handle.
+
+- **Chat commands (members only):** `/x @handle` (the `@` is optional) sets it; `/x` alone shows the current value (or the
+  usage); `/x clear` removes it. A bare word `clear` is the command, so to claim a handle that is literally named clear type
+  `/x @clear`. Guests get `Only signed-in members can use /x. Type /login to sign in first.` and nothing is written. Every
+  reply goes to the sender only (not to the room).
+- **Validation:** 1 to 15 characters of `A-Z a-z 0-9 _`, ASCII only (one leading `@` is stripped; the typed case is kept).
+  Anything else (spaces, dots, dashes, slashes, URLs, markup, Unicode lookalikes, longer than 15) is refused with
+  `That is not a valid X handle. Use 1-15 letters, numbers or underscores, e.g. /x @handle.` (`lib/xhandle.js`).
+- **Rate limit:** 5 changes (sets or clears) per member per hour, in memory (resets when the server restarts), shared by all of
+  the member's tabs. Invalid input and plain reads do not count.
+- **Storage:** optional field `xHandle` on the member's record in `users.json` (never for guests). It is removed by `/x clear`
+  and goes with the whole record on `/delete`. Saved with the normal `saveUsers`, which also clears the profile cache.
+- **Profile:** `GET /api/profile/<name>` adds `xHandle` and `xVerified: false` only when a handle is set (the stored value is
+  checked again on output, so a hand-edited bad value is never served). The key list is the allow-list `PUBLIC_FIELDS` in
+  `lib/profile.js` (`username`, `tier`, `joined`, `xHandle`, `xVerified`); nothing else can leave. `/u/<name>` shows
+  `X: @handle (unverified)` linking to `https://x.com/<handle>` (`rel="nofollow noopener noreferrer ugc"`, `target="_blank"`)
+  and the line `Claimed by the member; not verified by Milliway.` The name is set as text and the link is built only from
+  the checked handle. Public profile caching still applies (API 60 s, page 5 min), so a change can take up to a minute to show.
+- Tests: `test/xhandle.test.js` (validation, API allow-list, profile page script on a fake DOM) and
+  `test/xhandle.server.test.js` (a real server on temp data and a fake local mail server).

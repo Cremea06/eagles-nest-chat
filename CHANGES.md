@@ -1,3 +1,20 @@
+# CHG-140: /x (claimed X handle on the profile, unverified; proof of concept)
+
+Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `ad60f7a` (CHG-139).
+
+| File | Change |
+|---|---|
+| `lib/xhandle.js` (new) | Strict validation: 1-15 of `A-Za-z0-9_`, one leading `@` stripped, typed case kept, ASCII only. `publicHandle()` re-checks a stored value on output. |
+| `server.js` | `/x @handle`, `/x`, `/x clear` (members only; guests get the 'Only signed-in members' line). Replies to the sender only. Stored as optional `xHandle` on the member's `users.json` record, saved with `saveUsers` (clears the profile cache). 5 changes per member per hour (existing `createRateLimiter`, in memory). `/help` lists `/x`. No call to X. |
+| `lib/profile.js` | `GET /api/profile/:username` adds `xHandle` + `xVerified: false` only when a valid handle is set. `PUBLIC_FIELDS` is the output allow-list. |
+| `public/profile.html`, `profile.js`, `profile.css` | `X: @handle (unverified)` line linking to `https://x.com/<handle>` (`rel="nofollow noopener noreferrer ugc"`, `target="_blank"`), explainer 'Claimed by the member; not verified by Milliway.'; text only, link built from the re-checked handle, no inline script/style (CSP unchanged). 360 px and 320 px checked. |
+| `test/xhandle.test.js`, `test/xhandle.server.test.js` (new), `package.json` | 25 new tests (validation incl. lookalikes and URLs, API allow-list, page script, guest/set/show/clear/rate limit/profile API/delete purge on a real server with temp data and fake SMTP). `npm test` = 128. |
+| `README.md` | 'Claimed X handle' section; /delete purge list mentions the handle. |
+
+Server code changed: deploy needs `pm2 restart "Eagles Nest"`. New optional field in `users.json` (`xHandle`); old records are fine without it. Rollback: `git revert <hash>` + restart; a leftover `xHandle` in `users.json` is then simply ignored.
+
+---
+
 # CHG-139: 'My profile' pill moves into Who's here (visual only)
 
 Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `5220c7e` (CHG-138).

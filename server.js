@@ -13,6 +13,7 @@ const memberToken = require('./lib/memberToken');
 const usernameRule = require('./lib/username'); // CHG-051
 const states = require('./lib/states'); // CHG-055
 const { createRepThrottle } = require('./lib/repThrottle'); // CHG-055
+const xhandle = require('./lib/xhandle'); // CHG-140
 const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
@@ -341,6 +342,7 @@ function handleCommand(socket, msg) {
       '/mute <username>     - Mute a user (temporary)',
       '/nest                - Mint a Nest World pass (registered members)',
       '/rep <STATE>         - Show your US state before your name, e.g. /rep WV (members)',
+      '/x @handle           - Show a claimed X handle on your profile, e.g. /x @handle; /x clear removes it (members)',
       '/delete              - Delete your account: emails you a code, then /auth <code> (members)'
     ].join('\n');
     socket.emit('system', helpText);
@@ -479,6 +481,11 @@ function handleCommand(socket, msg) {
     return true;
   }
 
+  if (command === '/x') { // CHG-140
+    handleX(socket, args);
+    return true;
+  }
+
   if (command === '/delete') { // CHG-138
     handleDelete(socket).catch((err) => console.error('[account] delete request failed', err && (err.code || err.message)));
     return true;
@@ -534,6 +541,64 @@ function handleRep(socket, args) {
     }
   }
   editModeRefresh(); // CHG-058: the EDIT MODE tooltip lists shown names
+}
+
+// CHG-140 /x: a signed-in member sets, shows or clears a CLAIMED X handle (users.json field xHandle, members only).
+// Never verified and never checked with X (no network call). Every reply goes to the sender only. Strict validation in
+// lib/xhandle.js. Changes (set or clear) are limited to 5 per member per hour, in memory (it resets on restart).
+const xChangeLim = createRateLimiter({ limit: 5, windowMs: 60 * 60 * 1000 });
+const X_USAGE = 'Usage: /x @handle to show your X handle on your profile (claimed, not verified), or /x clear to remove it.';
+
+function handleX(socket, args) {
+  const user = isRegisteredAuthed(socket) ? findUserByName(socket.username) : null;
+  if (!user) {
+    socket.emit('system', 'Only signed-in members can use /x. Type /login to sign in first.'); // guests: no write, nothing leaked
+    return;
+  }
+  const current = xhandle.publicHandle(user.xHandle);
+  if (args.length === 0) {
+    socket.emit('system', current
+      ? 'Your claimed X handle is @' + current + ' (not verified). /x @handle changes it, /x clear removes it.'
+      : X_USAGE + ' You have not set one.');
+    return;
+  }
+  if (args.length > 1) {
+    socket.emit('system', X_USAGE);
+    return;
+  }
+  const key = String(user.username).toLowerCase();
+  if (args[0].toLowerCase() === 'clear') { // a bare word 'clear' is the command; /x @clear claims a handle named clear
+    if (!current && !('xHandle' in user)) {
+      socket.emit('system', 'You have no X handle set.');
+      return;
+    }
+    if (!xChangeLim.hit(key).ok) {
+      socket.emit('system', 'You have changed your X handle too many times. Try again in an hour.');
+      return;
+    }
+    delete user.xHandle;
+    saveUsers(registeredUsers); // also clears the profile cache
+    console.log('[x] cleared', user.username);
+    socket.emit('system', 'Your X handle has been removed from your profile.');
+    return;
+  }
+  const r = xhandle.normalize(args[0]);
+  if (!r.ok) {
+    socket.emit('system', 'That is not a valid X handle. Use 1-15 letters, numbers or underscores, e.g. /x @handle.');
+    return;
+  }
+  if (r.handle === current) {
+    socket.emit('system', 'Your X handle is already @' + current + '.');
+    return;
+  }
+  if (!xChangeLim.hit(key).ok) {
+    socket.emit('system', 'You have changed your X handle too many times. Try again in an hour.');
+    return;
+  }
+  user.xHandle = r.handle;
+  saveUsers(registeredUsers); // also clears the profile cache
+  console.log('[x] set', user.username);
+  socket.emit('system', 'Your X handle is now @' + r.handle + ' (claimed, not verified). It shows on your profile page.');
 }
 
 // CHG-138 /delete: a signed-in member types /delete, gets a fresh emailed code and the system line
