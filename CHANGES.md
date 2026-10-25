@@ -1,3 +1,17 @@
+# CHG-142: held-key auto-repeat counts toward the 100 keystrokes, at normal OS default speed only
+
+Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `1f3ad04` (CHG-141, live). Andy: "allow default hold down key speed to count as stroke but nothing faster counts".
+
+| File | Change |
+|---|---|
+| `public/keystroke-limits.js` (new) | The one place for the numbers and the page limiter: ceiling = one counted key per 30 ms (33.3/s), page burst 4, server burst 15, report every 250 ms; `createLimiter()` (token bucket, first key always counts, faster keys quietly not counted, no penalty) and `isCountableKey()` (trusted character or Backspace; not Ctrl/Cmd shortcuts, bare modifiers, Enter, arrows; auto-repeat allowed). Loaded by the page and `require`d by the server. |
+| `lib/keystrokeGate.js` | Server cap now comes from that file: 33.3 keys/s (was 12) and a 15-key bucket (unchanged). Still enforced independently of what the page claims: credit <= 15 + 33.3 x elapsed seconds. |
+| `public/index.html` | `<script src="/keystroke-limits.js">`; auto-repeat keydowns are no longer skipped, they go through the limiter like every other key; counts are reported every 250 ms (was 1 s) so a 33/s hold is credited as it goes. Hint text unchanged (it never mentioned holding). |
+| `test/keystroke-limits.test.js` (new), `test/keystroke-gate.test.js`, `test/keystroke-gate.server.test.js`, `package.json` | 25 new tests (14 limiter unit, 5 gate unit, 6 real-server). Three CHG-141 tests changed for the new numbers: unit k1 (12 -> 33.3/s), k6 (12/s -> 33/s), k7 (bot unlock about 8 s -> about 2.6 s); server test 7 (12/s flood bound -> 33.3/s). The other 24 of the 28 CHG-141 tests are untouched. |
+| `README.md` | Gate section updated (held keys count at normal speed; 2.6 s forged floor). |
+
+Server code and a new static file: deploy needs `git pull` and `pm2 restart "Eagles Nest"`. No `users.json` change, no env var. Rollback: `git revert <hash>` + restart.
+
 # CHG-141: guests join muted until they have recorded 100 keystrokes
 
 Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `d887bf6` (CHG-140).

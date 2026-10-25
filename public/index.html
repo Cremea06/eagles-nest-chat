@@ -710,6 +710,7 @@
   </div>
   
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/keystroke-limits.js"></script>
   <script>
     const socket = io();
     const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
@@ -1123,11 +1124,18 @@
     });
 
     // CHG-141: guests record 100 keystrokes before plain chat lines go through. We count real key presses in the chat box
-    // (trusted events only; held-key repeats, Ctrl/Cmd shortcuts and bare modifiers do not count) and report only a
-    // running NUMBER to the server about once a second. What is typed is never read, stored or sent for this.
+    // (trusted events only; Ctrl/Cmd shortcuts and bare modifiers do not count) and report only a running NUMBER to the
+    // server about 4 times a second while keys are being counted. What is typed is never read, stored or sent for this.
+    // CHG-142: a held key's auto-repeat counts too, but only up to the normal OS default repeat speed: a limiter (shared
+    // with the server in /keystroke-limits.js) counts at most one key per 30 ms (a few more in a quick burst) and quietly
+    // ignores anything faster. The server enforces the same ceiling on its own, whatever number we send.
     // The server decides how much of the number to believe; it is a speed bump, not proof of a human.
     var keyGated = false, keyLocal = 0, keyNeed = 100, keySent = 0, keyTimer = null;
-    var keyDown = false, keySkipInput = false; // pairs a counted keydown with the input event it causes
+    var keyDown = false; // pairs a keydown with the input event it causes (so one press is never counted twice)
+    var KL = window.KeystrokeLimits; // /keystroke-limits.js: the one place for the rules and speed limits (same server, same deploy)
+    var keyLimiter = KL.createLimiter();
+    var keyReportMs = KL.REPORT_MS;
+    function keyStamp(e) { return typeof e.timeStamp === 'number' && e.timeStamp > 0 ? e.timeStamp : performance.now(); }
     var keyHint = document.getElementById('keyHint');
     function keyRender() {
       var n = Math.min(keyLocal, keyNeed - 1);
@@ -1145,7 +1153,7 @@
       if (!keyGated) return;
       keyLocal += 1;
       keyRender();
-      if (!keyTimer) keyTimer = setTimeout(keyFlush, 1000);
+      if (!keyTimer) keyTimer = setTimeout(keyFlush, keyReportMs);
     }
     socket.on('keys:state', function (d) {
       keyGated = !!(d && d.gated);
@@ -1153,21 +1161,20 @@
       if (!keyGated) { clearTimeout(keyTimer); keyTimer = null; }
       else if (typeof d.count === 'number' && d.count < keySent) { // new connection, or the server is still catching up: say it again
         keySent = d.count;
-        if (!keyTimer) keyTimer = setTimeout(keyFlush, 1000);
+        if (!keyTimer) keyTimer = setTimeout(keyFlush, keyReportMs);
       }
       keyRender();
     });
     input.addEventListener('keydown', function (e) {
       keyDown = false;
-      if (!e.isTrusted || e.ctrlKey && !e.getModifierState('AltGraph') || e.metaKey) return;
-      if (e.repeat) { keySkipInput = true; return; }
-      if (e.key && (e.key.length === 1 || e.key === 'Backspace')) { keyDown = true; keyCount(); }
+      // CHG-142: auto-repeat is no longer skipped; a repeat goes through the same speed limiter as every other key
+      if (KL.isCountableKey(e)) { keyDown = true; if (keyLimiter.accept(keyStamp(e))) keyCount(); }
     });
     // phones and IMEs often send keydown with key 'Unidentified'/'Process'; count what they type from the input event instead
     input.addEventListener('input', function (e) {
       if (!e.isTrusted) return;
-      if (keyDown || keySkipInput) { keyDown = false; keySkipInput = false; return; }
-      if (e.inputType === 'insertText' || e.inputType === 'insertCompositionText' || e.inputType === 'deleteContentBackward') keyCount();
+      if (keyDown) { keyDown = false; return; }
+      if (e.inputType === 'insertText' || e.inputType === 'insertCompositionText' || e.inputType === 'deleteContentBackward') { if (keyLimiter.accept(keyStamp(e))) keyCount(); }
     });
 
     form.addEventListener('submit', (e) => {

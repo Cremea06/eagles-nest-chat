@@ -1,4 +1,5 @@
 // CHG-141: guests join muted until they have recorded 100 keystrokes — against a REAL server process, temp data only.
+//  CHG-142: test 7 adjusted for the new ceiling (12/s -> 33.3/s); tests 18-23 added (before the privacy test, which now runs last).
 //  Same harness as the CHG-138/140 server tests (temp copy of the repo, fake SMTP, minimal socket.io v4 client).
 //  Extra: a preload (spy.js) replaces fetch in the server process, so any call to Neagle's AI shows up in the log as
 //  '[spy] fetch'. A blocked line must never produce one. Nothing leaves this machine.
@@ -343,7 +344,7 @@ test('7. fake / abusive reports are capped: cannot jump to 100, bad values ignor
   for (let i = 0; i < 30; i++) { g.send('keys:report', { count: 100 }); await sleep(20); }
   await sleep(200);
   const secs = (Date.now() - t0 + 700) / 1000; // + the time since the first (burst) report
-  assert.ok(state(g).count <= 15 + 12 * secs + 1, 'a flood of 100s is held to 12 keys/s after the burst: ' + state(g).count + ' in ' + secs.toFixed(1) + ' s');
+  assert.ok(state(g).count <= 15 + 33.34 * secs + 1, 'a flood of 100s is held to 33.3 keys/s after the burst: ' + state(g).count + ' in ' + secs.toFixed(1) + ' s'); // CHG-142: was 12 * secs
   assert.ok(state(g).count < 100);
   const f = g.mark(); g.send('chat message', 'let me in');
   const w = await g.wait('chat message', (m) => m.username === 'Neagle', 3000, f);
@@ -473,6 +474,90 @@ test('16. presence / guest count unchanged: gated guests are listed as guests li
   const sync = g.events.find((e) => e.name === 'presence:sync').data;
   assert.ok(sync.users.some((u) => u.you && u.guest === true));
   g.close();
+});
+
+// ---- CHG-142: held-key speed. A person holding a key: first press, 500 ms, then repeats every `gap` ms; the page reports the running
+// count every 250 ms. Runs in real time against the real server; resolves with { ms: time until `until`, count }.
+async function holdKey(c, gap, { delay = 500, maxMs = 8000, until = (st) => !st.gated } = {}) {
+  const t0 = Date.now(); let sent = -1;
+  while (Date.now() - t0 < maxMs) {
+    const el = Date.now() - t0;
+    const keys = 1 + (el > delay ? Math.floor((el - delay) / gap) : 0);
+    if (keys !== sent) { c.send('keys:report', { count: Math.min(keys, 100) }); sent = keys; }
+    await sleep(250);
+    const st = state(c); if (until(st)) return { ms: Date.now() - t0, count: st.count };
+  }
+  return { ms: Date.now() - t0, count: state(c).count };
+}
+
+test('18. CHG-142: reports at the ceiling are accepted: a default-speed Windows hold (33 ms repeats) is credited in full (within one report), a 90 ms mac hold too', async () => {
+  const g = await join(); const t0 = Date.now();
+  await holdKey(g, 33, { maxMs: 2000, until: () => false });
+  const el = Date.now() - t0; const keysNow = 1 + Math.floor((el - 500) / 33);
+  await sleep(300); // last report in flight
+  assert.ok(state(g).count >= 30 && state(g).count < 100, 'count ' + state(g).count);
+  assert.ok(state(g).count >= keysNow - 12, 'credited ' + state(g).count + ' of ~' + keysNow + ' keys held');
+  const m = await join(); const t1 = Date.now();
+  await holdKey(m, 90, { maxMs: 2000, until: () => false });
+  const mk = 1 + Math.floor((Date.now() - t1 - 500) / 90); await sleep(300);
+  assert.ok(Math.abs(state(m).count - mk) <= 3, 'mac-speed hold credited ' + state(m).count + ' of ~' + mk);
+  g.close(); m.close();
+});
+
+test('19. CHG-142: above the ceiling is capped, not an error: claiming 100 keys/s (3x the ceiling) is credited at <= 15 + 33.3 x elapsed', async () => {
+  const g = await join(); const t0 = Date.now(); let claimed = 0;
+  while (Date.now() - t0 < 1800) { claimed = Math.min(99, Math.floor((Date.now() - t0) / 10)); g.send('keys:report', { count: claimed }); await sleep(60); }
+  await sleep(200);
+  const secs = (Date.now() - t0) / 1000;
+  assert.ok(claimed >= 90, 'claimed ' + claimed);
+  assert.ok(state(g).count <= 15 + 33.34 * secs + 1, 'credited ' + state(g).count + ' in ' + secs.toFixed(2) + ' s');
+  assert.ok(state(g).count >= 15 + 33 * 1.5 - 5 || state(g).count >= 60, 'but the ceiling rate is still credited: ' + state(g).count);
+  assert.strictEqual(g.events.filter((e) => e.name === 'connect_error').length, 0);
+  g.close();
+});
+
+test('20. CHG-142: jump reports are capped: one report of 100 credits at most the 15-key burst; 1000 more reports of 100 in 0.5 s add at most ~17', async () => {
+  const g = await join(); const t0 = Date.now();
+  g.send('keys:report', { count: 100 }); await sleep(150);
+  assert.ok(state(g).count > 0 && state(g).count <= 16, 'first jump credited ' + state(g).count);
+  for (let i = 0; i < 1000; i++) g.send('keys:report', { count: 100 });
+  await sleep(400);
+  const secs = (Date.now() - t0) / 1000;
+  assert.ok(state(g).count < 100 && state(g).count <= 15 + 33.34 * secs + 1, 'credited ' + state(g).count + ' in ' + secs.toFixed(2) + ' s');
+  g.close();
+});
+
+test('21. CHG-142: 100 is reached after plausible holding time (a Windows-speed hold: about 3.5-4.5 s incl. the 500 ms delay) and the guest is unlocked with the private thank-you', async () => {
+  const g = await join(); const f = g.mark();
+  const r = await holdKey(g, 33, { maxMs: 8000 });
+  assert.strictEqual(state(g).gated, false, 'unlocked after ' + r.ms + ' ms');
+  assert.ok(r.ms >= 3000 && r.ms <= 5200, 'a default-speed hold unlocked after ' + r.ms + ' ms');
+  assert.ok(g.events.slice(f).some((e) => e.name === 'chat message' && e.data.message === UNLOCK));
+  g.close();
+});
+
+test('22. CHG-142: and NOT in under ~2.5 s however it is claimed: a forged flood of "count: 100" is still short of 100 at 2.3 s, and gets in only at ~2.6 s or later', async () => {
+  const g = await join(); const t0 = Date.now(); let at2300 = null; let unlockedAt = null;
+  while (Date.now() - t0 < 6000 && unlockedAt === null) {
+    g.send('keys:report', { count: 100 }); await sleep(20);
+    const el = Date.now() - t0;
+    if (at2300 === null && el >= 2300) at2300 = state(g).count;
+    if (state(g).gated === false) unlockedAt = el;
+  }
+  assert.ok(at2300 !== null && at2300 < 100, 'count at 2.3 s was ' + at2300);
+  assert.ok(unlockedAt !== null && unlockedAt >= 2400 && unlockedAt <= 4000, 'forger unlocked at ' + unlockedAt + ' ms');
+  g.close();
+});
+
+test('23. CHG-142: the page file the server hands out carries the same limits the server enforces (one source), and a held-key repeat is no longer skipped there', async () => {
+  const js = await new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port, path: '/keystroke-limits.js' }, (res) => { let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve({ status: res.statusCode, body: b })); }).on('error', reject));
+  assert.strictEqual(js.status, 200);
+  const L = require('../public/keystroke-limits');
+  assert.ok(js.body.includes('var MIN_GAP_MS = ' + L.MIN_GAP_MS + ';'));
+  const html = await new Promise((resolve, reject) => http.get({ host: '127.0.0.1', port, path: '/' }, (res) => { let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve(b)); }).on('error', reject));
+  assert.ok(html.includes('<script src="/keystroke-limits.js"></script>'));
+  assert.ok(!/e\.repeat/.test(html.slice(html.indexOf('CHG-141: guests record 100 keystrokes'), html.indexOf("form.addEventListener('submit'"))), 'the page no longer skips e.repeat');
+  assert.ok(!/12 keys/.test(html), 'no stale 12-keys wording on the page');
 });
 
 test('17. privacy: no keystroke text or count in the server log; only the usual lines', async () => {
