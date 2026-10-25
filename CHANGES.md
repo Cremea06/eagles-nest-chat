@@ -1,3 +1,19 @@
+# CHG-141: guests join muted until they have recorded 100 keystrokes
+
+Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `d887bf6` (CHG-140).
+
+| File | Change |
+|---|---|
+| `lib/keystrokeGate.js` (new) | Pure logic: per-socket count (memory), human-rate credit (12 keys/s, 15 per report, bad/huge/repeat values ignored), 5 s gap between Neagle's replies to one guest, the two canned Neagle lines. |
+| `server.js` | Gate in the `chat message` handler AFTER the admin-mute check, the slash-command branch and the registration step, BEFORE the edit-mode flow, the room broadcast and Neagle: a gated guest's plain line goes nowhere except a private canned Neagle reply (no `roomLine`, so no clip id and no `last5`). New events: `keys:report` (in) and `keys:state` (out, sent on join and on progress; a member or support session gets `gated:false`). Gated = not signed in AND not yet unlocked AND not a support session (CHG-128 'Need to talk?' people are never asked to type first). `/login`, `/auth`, `/logout` and every slash command unchanged. |
+| `public/index.html` | Counts trusted keydown presses in the chat box (character or Backspace; not `event.repeat`, not Ctrl/Cmd, not modifier-only; phone keyboards that send 'Unidentified' are counted from the `input` event instead), reports the running number about once a second and right before a line is sent. A thin 'Type 100 keystrokes to unlock chat: N/100' line with a gold bar above the input, guests only, gone once unlocked. Members see nothing new. 360 px checked. |
+| `test/keystroke-gate.test.js`, `test/keystroke-gate.server.test.js` (new), `package.json` | 28 new tests (11 unit; 17 on a real server with temp data, fake SMTP and a fetch spy that proves no AI call). `npm test` = 156. |
+| `README.md` | Section on the gate. |
+
+Server code changed: deploy needs `pm2 restart "Eagles Nest"`. No `users.json` change, no new file, no env var. Rollback: `git revert <hash>` + restart.
+
+---
+
 # CHG-140: /x (claimed X handle on the profile, unverified; proof of concept)
 
 Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `ad60f7a` (CHG-139).

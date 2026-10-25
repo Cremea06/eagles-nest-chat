@@ -197,3 +197,9 @@ possible "port my X profile" feature; for now it is only the handle.
   the checked handle. Public profile caching still applies (API 60 s, page 5 min), so a change can take up to a minute to show.
 - Tests: `test/xhandle.test.js` (validation, API allow-list, profile page script on a fake DOM) and
   `test/xhandle.server.test.js` (a real server on temp data and a fake local mail server).
+
+## Guests join muted until 100 keystrokes (CHG-141)
+
+A guest (anyone not signed in) cannot post a plain chat line until the chat page has reported 100 real key presses in the chat box. A blocked line is not broadcast, not written to `last5.txt`, not put in the clip buffer and never sent to Neagle's AI; Neagle answers that guest only with a canned line ("Welcome, guest! Before you can speak in Milliway, you are required to record 100 keystrokes (you're at N/100). ..."), at most once per 5 s. At 100 the guest gets "Thank you, you may enter the conversation." (also private) and chats normally. Slash commands, `/login` and `/auth` are never gated. Members are never gated. The admin `/mute` still wins.
+
+How: the page counts trusted key presses (a character or Backspace; not held-key repeats, not Ctrl/Cmd shortcuts) and sends `keys:report {count}` (a cumulative number, about once a second). The server (`lib/keystrokeGate.js`) credits it at a human rate (12 keys/s, at most 15 per report) and sends `keys:state {gated, need, count}` back. The count lives in memory on the socket: no cookie, no storage, never what was typed, nothing logged. A page reload is a new guest and starts at 0. It is friction, not security: a script can still earn its 100 in about 8 seconds.

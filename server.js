@@ -23,6 +23,7 @@ const { memberCountRoute } = require('./lib/memberCount'); // CHG-132
 const tailgate = require('./lib/tailgate'); // CHG-133
 const clips = require('./lib/clips'); // CHG-134
 const accountDelete = require('./lib/accountDelete'); // CHG-138
+const keyGate = require('./lib/keystrokeGate'); // CHG-141
 const { rateKey } = require('./lib/safeLink');
 
 const app = express();
@@ -734,6 +735,20 @@ function neagleSay(text) {
   last5.record('Neagle', text); // same as a normal Neagle line
 }
 
+// CHG-141: guests join muted until the page has reported 100 real keystrokes (memory only; a count, never content).
+// Gated = not a signed-in member, not yet unlocked, not a support session (a person who came in through
+// "Need to talk?" must never be asked to type first). Admin /mute (mutedUntil) is separate and always wins.
+function keyGateApplies(socket) {
+  return !isRegisteredAuthed(socket) && !(socket.keyGate && socket.keyGate.unlocked) && !supportSessions.isSupport(socket);
+}
+function keyGateState(socket) { // tell this page whether to show the hint (only gated guests ever get gated:true)
+  socket.emit('keys:state', { gated: keyGateApplies(socket), need: keyGate.NEED, count: socket.keyGate ? socket.keyGate.count : 0 });
+}
+// Neagle speaks to ONE socket: not in the room, not in last5.txt, not in the clip buffer, no id/time (so never clippable).
+function neagleWhisper(socket, text) {
+  socket.emit('chat message', { username: 'Neagle', message: text });
+}
+
 // A normal public human line (room + last5.txt).
 function postHumanLine(socket, msg) {
   const displayName = shownName(socket); // CHG-055: 'WV Andy' for a member with a state
@@ -1255,6 +1270,7 @@ io.on('connection', (socket) => {
   socket.emit('clips:context', clipContext());
   console.log('A user connected');
   clearReg(socket);
+  socket.keyGate = keyGate.createState(); // CHG-141: per socket, memory only
 
   socket.on('join', (data) => {
     let username = '';
@@ -1315,6 +1331,17 @@ io.on('connection', (socket) => {
     presenceSync(socket);
     socket.emit('editmode:state', editModeState()); // CHG-058: EDIT MODE header for newcomers
     supportSessions.onJoin(socket, data, () => shownName(socket)); // CHG-128: silent; Neagle greets publicly
+    keyGateState(socket); // CHG-141
+  });
+
+  // CHG-141: the page's running keystroke COUNT (a number only). Credited at a human rate, capped per report.
+  socket.on('keys:report', (data) => {
+    if (!keyGateApplies(socket)) return;
+    const value = data && typeof data === 'object' ? data.count : undefined;
+    const r = keyGate.applyReport(socket.keyGate, value);
+    if (!r.accepted) return;
+    keyGateState(socket); // state first, so the page has dropped the hint by the time the thank-you shows
+    if (r.unlockedNow) neagleWhisper(socket, keyGate.UNLOCKED_TEXT);
   });
 
   socket.on('priv:open', (data = {}) => {
@@ -1478,6 +1505,7 @@ io.on('connection', (socket) => {
     socket.data.memberName = user.username;
 
     socket.emit('joined', { username: socket.username });
+    keyGateState(socket); // CHG-141: a member is never gated
     socket.emit('system', 'Complete.');
     socket.broadcast.emit('system', `${roomName(socket)} has joined the chat`); // CHG-055: state prefix
     console.log('[auth ok]', oldName, '->', socket.username);
@@ -1527,6 +1555,13 @@ io.on('connection', (socket) => {
 
     if (socket.reg.step !== 'idle') {
       handleRegistrationInput(socket, text);
+      return;
+    }
+
+    // CHG-141: a guest who has not recorded 100 keystrokes does not speak. Plain lines only (slash lines left above).
+    // Nothing below runs for a blocked line: no room broadcast, no last5.txt, no clip buffer, no edit flow, no Neagle AI call.
+    if (keyGateApplies(socket)) {
+      if (keyGate.takeReply(socket.keyGate)) neagleWhisper(socket, keyGate.blockedText(socket.keyGate.count));
       return;
     }
 

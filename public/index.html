@@ -237,6 +237,21 @@
 
     #input::placeholder { color: rgba(255, 255, 255, 0.4); }
 
+    /* CHG-141: guests only - a thin progress hint above the input; hidden for members and once unlocked */
+    #keyHint {
+      flex-shrink: 0;
+      padding: 0.35rem 1.25rem 0.3rem;
+      font-size: 0.78rem;
+      line-height: 1.25;
+      color: rgba(255, 255, 255, 0.7);
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    #keyHint[hidden] { display: none; }
+    #keyHint .bar { height: 3px; margin-top: 0.3rem; border-radius: 2px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+    #keyHint .fill { display: block; height: 100%; width: 0; background: #d4af37; transition: width 0.15s; }
+    #keyHint + #form { border-top: none; }
+
     #input:focus {
       background: rgba(255, 255, 255, 0.12);
       border-color: rgba(255, 255, 255, 0.35);
@@ -597,6 +612,10 @@
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
     </h2>
     <div id="messages"></div>
+    <div id="keyHint" hidden>
+      <span id="keyHintText">Type 100 keystrokes to unlock chat: 0/100</span>
+      <div class="bar" aria-hidden="true"><span class="fill" id="keyFill"></span></div>
+    </div>
     <form id="form">
       <input id="input" autocomplete="off" placeholder="Type a message..." />
       <button type="button" id="clipBtn" title="Clip the last 30 seconds of chat" aria-label="Clip">&#9986;<span class="clip-label"> Clip</span></button>
@@ -1103,9 +1122,58 @@
       memberPost('/api/member/logout').then(() => setTimeout(() => location.reload(), 1500));
     });
 
+    // CHG-141: guests record 100 keystrokes before plain chat lines go through. We count real key presses in the chat box
+    // (trusted events only; held-key repeats, Ctrl/Cmd shortcuts and bare modifiers do not count) and report only a
+    // running NUMBER to the server about once a second. What is typed is never read, stored or sent for this.
+    // The server decides how much of the number to believe; it is a speed bump, not proof of a human.
+    var keyGated = false, keyLocal = 0, keyNeed = 100, keySent = 0, keyTimer = null;
+    var keyDown = false, keySkipInput = false; // pairs a counted keydown with the input event it causes
+    var keyHint = document.getElementById('keyHint');
+    function keyRender() {
+      var n = Math.min(keyLocal, keyNeed - 1);
+      keyHint.hidden = !keyGated;
+      document.getElementById('keyHintText').textContent = 'Type ' + keyNeed + ' keystrokes to unlock chat: ' + n + '/' + keyNeed;
+      document.getElementById('keyFill').style.width = Math.round(100 * n / keyNeed) + '%';
+    }
+    function keyFlush() {
+      clearTimeout(keyTimer); keyTimer = null;
+      if (!keyGated || keyLocal === keySent) return;
+      keySent = keyLocal;
+      socket.emit('keys:report', { count: keyLocal });
+    }
+    function keyCount() {
+      if (!keyGated) return;
+      keyLocal += 1;
+      keyRender();
+      if (!keyTimer) keyTimer = setTimeout(keyFlush, 1000);
+    }
+    socket.on('keys:state', function (d) {
+      keyGated = !!(d && d.gated);
+      if (d && d.need) keyNeed = d.need;
+      if (!keyGated) { clearTimeout(keyTimer); keyTimer = null; }
+      else if (typeof d.count === 'number' && d.count < keySent) { // new connection, or the server is still catching up: say it again
+        keySent = d.count;
+        if (!keyTimer) keyTimer = setTimeout(keyFlush, 1000);
+      }
+      keyRender();
+    });
+    input.addEventListener('keydown', function (e) {
+      keyDown = false;
+      if (!e.isTrusted || e.ctrlKey && !e.getModifierState('AltGraph') || e.metaKey) return;
+      if (e.repeat) { keySkipInput = true; return; }
+      if (e.key && (e.key.length === 1 || e.key === 'Backspace')) { keyDown = true; keyCount(); }
+    });
+    // phones and IMEs often send keydown with key 'Unidentified'/'Process'; count what they type from the input event instead
+    input.addEventListener('input', function (e) {
+      if (!e.isTrusted) return;
+      if (keyDown || keySkipInput) { keyDown = false; keySkipInput = false; return; }
+      if (e.inputType === 'insertText' || e.inputType === 'insertCompositionText' || e.inputType === 'deleteContentBackward') keyCount();
+    });
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       if (!input.value) return;
+      keyFlush(); // CHG-141: the server sees the latest count before it sees this line
       const raw = input.value.trim();
       const cmd = raw.split(/\s+/)[0].toLowerCase();
       if (cmd === '/login') {
