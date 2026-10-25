@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/server-stats.test.js test/safe-link.test.js test/profile.test.js test/support.test.js test/support-memory.test.js test/member-count.test.js test/tailgate.test.js test/clips.test.js test/account-delete.test.js test/account-delete.server.test.js test/xhandle.test.js test/xhandle.server.test.js test/keystroke-limits.test.js test/keystroke-gate.test.js test/keystroke-gate.server.test.js",
+    "test": "node --test test/server-stats.test.js test/safe-link.test.js test/profile.test.js test/support.test.js test/support-memory.test.js test/member-count.test.js test/tailgate.test.js test/clips.test.js test/account-delete.test.js test/account-delete.server.test.js test/xhandle.test.js test/xhandle.server.test.js test/keystroke-limits.test.js test/keystroke-gate.test.js test/keystroke-gate.server.test.js test/priv-popup-position.test.js",
     "test:live": "node --test test/safe-link.live.test.js"
   },
   "keywords": [],

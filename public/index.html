@@ -512,24 +512,31 @@
       }
     }
 
+    /* CHG-144: the /login /register popup sits directly above the message input (and above the guest keystroke hint when
+       that is showing). #privDock is a zero-height anchor between #messages and #keyHint/#form, so the popup is positioned
+       relative to the input stack, not the viewport corner - it follows the input when the on-screen keyboard shrinks the page. */
+    #privDock { position: relative; height: 0; flex-shrink: 0; z-index: 40; }
     #privPane {
       display: none;
-      position: fixed;
-      right: 24px;
-      bottom: 24px;
-      width: 320px;
-      max-height: 360px;
-      z-index: 40;
-      padding: 14px;
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      margin: 0 auto 8px;
+      width: min(340px, calc(100% - 24px));
+      max-height: min(240px, 40vh);
+      padding: 10px 12px;
+      background: rgba(12, 22, 40, 0.94);
     }
     #privPane.open { display: flex; flex-direction: column; }
     #privLog {
       flex: 1;
-      min-height: 140px;
+      min-height: 48px;
       overflow-y: auto;
       font-size: 0.85rem;
       margin-bottom: 8px;
     }
+    #privLog .msg { padding: 0.3rem 0.65rem; margin-bottom: 4px; max-width: 100%; line-height: 1.3; } /* CHG-144: compact lines so the popup hides fewer chat lines */
     #privForm { display: flex; gap: 8px; }
     /* CHG-047 — close (x) on the private pane */
     #privHead { display: flex; justify-content: flex-end; margin: -6px -6px 2px 0; }
@@ -545,6 +552,7 @@
     #privClose:hover, #privClose:focus-visible { color: #fff; }
     #privInput {
       flex: 1;
+      min-width: 0;
       padding: 8px 10px;
       border-radius: 10px;
       border: 1px solid rgba(255,255,255,0.18);
@@ -612,6 +620,16 @@
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
     </h2>
     <div id="messages"></div>
+    <div id="privDock">
+      <div id="privPane" class="glass">
+        <div id="privHead"><button id="privClose" type="button" aria-label="Close" title="Close (Esc)">&times;</button></div>
+        <div id="privLog"></div>
+        <form id="privForm">
+          <input id="privInput" autocomplete="off" />
+          <button>Send</button>
+        </form>
+      </div>
+    </div>
     <div id="keyHint" hidden>
       <span id="keyHintText">Type 100 keystrokes to unlock chat: 0/100</span>
       <div class="bar" aria-hidden="true"><span class="fill" id="keyFill"></span></div>
@@ -700,15 +718,6 @@
   </aside>
   </div>
 
-    <div id="privPane" class="glass">
-    <div id="privHead"><button id="privClose" type="button" aria-label="Close" title="Close (Esc)">&times;</button></div>
-    <div id="privLog"></div>
-    <form id="privForm">
-      <input id="privInput" autocomplete="off" />
-      <button>Send</button>
-    </form>
-  </div>
-  
   <script src="/socket.io/socket.io.js"></script>
   <script src="/keystroke-limits.js"></script>
   <script>
