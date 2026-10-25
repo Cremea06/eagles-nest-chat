@@ -1,3 +1,16 @@
+# CHG-143: Neagle's private reply to a muted guest is reworded and uses the guest's name
+
+Prepared 2026-10-25 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `6938adb` (CHG-142, live). Andy: "Guest-number, I'll need some more keystrokes from you before I'll let you talk in here. You're at 6/100."
+
+| File | Change |
+|---|---|
+| `lib/keystrokeGate.js` | `blockedText(count, name)`: "<name>, I'll need some more keystrokes from you before I'll let you talk in here. You're at N/100." N/100 still comes from `NEED`. Name collapsed to one line; "Guest" when empty. Plain text. |
+| `server.js` | The one call site passes the guest's current room name (`roomName(socket)`, e.g. "Guest-User 1901"). Same private whisper path, same 5 s limit. |
+| `test/keystroke-gate.test.js`, `test/keystroke-gate.server.test.js` | k11 and the shared wording regex updated; one new real-server test (2b) asserts the exact line with the guest's name. |
+| `README.md` | Gate section quotes the new wording. |
+
+Unchanged: private to that guest, 5 s rate limit, unlock text 'Thank you, you may enter the conversation.', page hint 'Type 100 keystrokes to unlock chat: N/100', all gate behavior. The old reply said slash commands always work; the new one does not say so (they still work, and the page hint does not mention them either). Deploy: `git pull` and `pm2 restart "Eagles Nest"`. No `users.json` change. Rollback: `git revert <hash>` + restart.
+
 # CHG-142: held-key auto-repeat counts toward the 100 keystrokes, at normal OS default speed only
 
 Prepared 2026-10-24 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `1f3ad04` (CHG-141, live). Andy: "allow default hold down key speed to count as stroke but nothing faster counts".

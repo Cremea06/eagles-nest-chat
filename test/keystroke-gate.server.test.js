@@ -201,7 +201,7 @@ test.before(async () => {
 });
 test.after(async () => { await stopServer(); if (smtp) smtp.close(); if (dir) fs.rmSync(dir, { recursive: true, force: true }); });
 
-const NEED_RE = /^Welcome, guest! Before you can speak in Milliway, you are required to record 100 keystrokes \(you're at (\d+)\/100\)\. Keep typing here and I'll let you in\. Slash commands like \/help and \/login always work\.$/;
+const NEED_RE = /^(?:Guest-User \d+|Guest), I'll need some more keystrokes from you before I'll let you talk in here\. You're at (\d+)\/100\.$/; // CHG-143: reworded; capture 1 is still the count
 const UNLOCK = 'Thank you, you may enter the conversation.';
 const chats = (c, from = 0) => c.events.slice(from).filter((e) => e.name === 'chat message').map((e) => e.data);
 const last5 = () => { try { return fs.readFileSync(path.join(dir, 'data', 'last5.txt'), 'utf8'); } catch (e) { return ''; } };
@@ -252,6 +252,18 @@ test('2. a blocked plain line: not broadcast, not in last5.txt, not in the clip 
   assert.ok(!JSON.stringify(rec.j.lines).includes(CHATTY) && !JSON.stringify(rec.j.lines).includes('keystrokes'), 'clip buffer has neither');
   assert.strictEqual(spyCalls(), calls, 'no AI call');
   g.close(); obs.close(); bob.close();
+});
+
+test('2b. CHG-143: the private Neagle line names the guest as the server shows them, N/100, exact wording; only that guest gets it', async () => {
+  const g = await join(); const obs = await join();
+  assert.match(g.joined.username, /^Guest-User \d{4}$/);
+  const from = g.mark(), fo = obs.mark();
+  g.send('chat message', 'hi');
+  const w = await g.wait('chat message', (m) => m.username === 'Neagle', 4000, from);
+  assert.strictEqual(w.data.message, g.joined.username + ", I'll need some more keystrokes from you before I'll let you talk in here. You're at 0/100.");
+  await sleep(300);
+  assert.deepStrictEqual(chats(obs, fo), [], 'the other guest sees nothing');
+  g.close(); obs.close();
 });
 
 test('3. no AI call (and no public Neagle line) for a blocked line, even one that mentions Neagle; a member mentioning Neagle does call it (control)', async () => {

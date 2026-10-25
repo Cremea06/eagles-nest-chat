@@ -1561,7 +1561,7 @@ io.on('connection', (socket) => {
     // CHG-141: a guest who has not recorded 100 keystrokes does not speak. Plain lines only (slash lines left above).
     // Nothing below runs for a blocked line: no room broadcast, no last5.txt, no clip buffer, no edit flow, no Neagle AI call.
     if (keyGateApplies(socket)) {
-      if (keyGate.takeReply(socket.keyGate)) neagleWhisper(socket, keyGate.blockedText(socket.keyGate.count));
+      if (keyGate.takeReply(socket.keyGate)) neagleWhisper(socket, keyGate.blockedText(socket.keyGate.count, roomName(socket))); // CHG-143: names the guest
       return;
     }
 

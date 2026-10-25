@@ -85,10 +85,15 @@ test('k10. Neagle replies to one guest at most once per 5 s', () => {
   assert.strictEqual(g.takeReply(other, 6001), true, 'per guest, not global');
 });
 
-test('k11. canned wording: names the 100, shows N/100, keeps slash commands open; unlock text exact', () => {
-  assert.strictEqual(g.blockedText(37), "Welcome, guest! Before you can speak in Milliway, you are required to record 100 keystrokes (you're at 37/100). Keep typing here and I'll let you in. Slash commands like /help and /login always work.");
+test('k11. canned wording (CHG-143): "<name>, ..." with N/100 from NEED; "Guest" when no name; one plain line; unlock text exact', () => {
+  assert.strictEqual(g.blockedText(37, 'Guest-User 1901'), "Guest-User 1901, I'll need some more keystrokes from you before I'll let you talk in here. You're at 37/100.");
+  assert.strictEqual(g.blockedText(6, 'Guest-User 1901'), "Guest-User 1901, I'll need some more keystrokes from you before I'll let you talk in here. You're at 6/100.");
+  for (const none of [undefined, null, '', '   ']) assert.strictEqual(g.blockedText(0, none), "Guest, I'll need some more keystrokes from you before I'll let you talk in here. You're at 0/100.");
+  assert.strictEqual(g.blockedText(0), g.blockedText(0, ''), 'no name given falls back to Guest');
+  assert.ok(!/\n/.test(g.blockedText(1, 'a\nb  c')) && g.blockedText(1, 'a\nb  c').startsWith('a b c, '), 'a name with line breaks stays one line');
+  assert.ok(g.blockedText(1, '<b>x</b>').startsWith('<b>x</b>, '), 'plain text: the name is passed through unchanged (the page shows it with textContent)');
   assert.strictEqual(g.UNLOCKED_TEXT, 'Thank you, you may enter the conversation.');
-  assert.ok(!/human|bot|verify|secur/i.test(g.blockedText(0) + g.UNLOCKED_TEXT), 'no claim that this proves a person');
+  assert.ok(!/human|bot|verify|secur/i.test(g.blockedText(0, 'Guest-User 1') + g.UNLOCKED_TEXT), 'no claim that this proves a person');
 });
 
 // ---- CHG-142 ----
