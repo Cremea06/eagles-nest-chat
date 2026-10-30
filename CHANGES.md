@@ -10,7 +10,9 @@ Prepared 2026-10-29, committed locally, not pushed, not deployed. Base `4397aa6`
 | `test/wx.test.js` | 13 tests (zip validation, cache, missing DB, IP estimate stub, XFF trust, key not leaked, CORS, rate limit, errors, upstream budget). |
 | `package.json` | `mmdb-lib` dependency; wx test added to `npm test`. |
 
-Deploy: `git pull && npm ci`, add `WEATHERUSA_API_KEY` to the pm2 env, `tools/fetch-dbip.sh`, `pm2 restart "Eagles Nest" --update-env`.
+Rev (Andy 2026-10-30): mmdb lazy-loaded on the first no-zip /api/wx request (one shared load promise), not at startup; key read per call from process.env (dotenv, `~/chat-app/.env`). 16 wx tests.
+
+Deploy: `git pull && npm ci`, add `WEATHERUSA_API_KEY=` to `~/chat-app/.env`, `tools/fetch-dbip.sh`, `pm2 restart "Eagles Nest" --update-env`.
 
 # CHG-143: Neagle's private reply to a muted guest is reworded and uses the guest's name
 

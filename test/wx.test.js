@@ -61,10 +61,12 @@ test('ttl cache evicts oldest beyond max', () => {
   assert.strictEqual(c.get('a'), undefined); assert.strictEqual(c.get('c'), 3);
 });
 
-test('missing DB files -> locator not ready, no estimate, route returns zip:null without upstream', async () => {
+test('missing DB files -> locator loads lazily, no estimate, route returns zip:null without upstream', async () => {
   const loc = createIpLocator({ mmdbPath: '/nonexistent/x.mmdb', zctaPath: '/nonexistent/z.json' });
-  assert.strictEqual(loc.ready, false);
-  assert.strictEqual(loc.estimateZip('8.8.8.8'), null);
+  assert.strictEqual(loc.loaded(), false);
+  assert.strictEqual(await loc.estimateZip('8.8.8.8'), null);
+  assert.strictEqual(await loc.estimateZip('8.8.4.4'), null, 'still no estimate, no crash');
+  assert.strictEqual(loc.loadCount(), 1, 'missing file not re-read per request');
   const calls = [];
   const s = await serve({ wx: createWx({ apiKey: KEY, fetch: stubFetch(calls) }), locator: loc, trustProxy: false });
   const r = await fetch(url(s)); const j = await r.json();
@@ -74,13 +76,13 @@ test('missing DB files -> locator not ready, no estimate, route returns zip:null
   s.close();
 });
 
-test('IP estimate path with stub reader: public US IP -> nearest ZIP; private/foreign -> null', () => {
+test('IP estimate path with stub reader: public US IP -> nearest ZIP; private/foreign -> null', async () => {
   const loc = createIpLocator({ reader: stubReader, zcta: ZCTA });
-  assert.strictEqual(loc.estimateZip('8.8.8.8'), '94043');
-  assert.strictEqual(loc.estimateZip('::ffff:8.8.8.8'), '94043');
-  assert.strictEqual(loc.estimateZip('81.2.69.1'), null);
-  assert.strictEqual(loc.estimateZip('10.1.2.3'), null);
-  assert.strictEqual(loc.estimateZip('127.0.0.1'), null);
+  assert.strictEqual(await loc.estimateZip('8.8.8.8'), '94043');
+  assert.strictEqual(await loc.estimateZip('::ffff:8.8.8.8'), '94043');
+  assert.strictEqual(await loc.estimateZip('81.2.69.1'), null);
+  assert.strictEqual(await loc.estimateZip('10.1.2.3'), null);
+  assert.strictEqual(await loc.estimateZip('127.0.0.1'), null);
   assert.ok(isPublicIp('8.8.8.8') && !isPublicIp('192.168.1.1') && !isPublicIp('unknown'));
   assert.strictEqual(nearestZip(ZCTA, 0, 0), null, 'far from every centroid');
 });
@@ -161,4 +163,38 @@ test('summarizeAlert keeps it short and readable', () => {
   const s = summarizeAlert('BULLETIN\n\n* WHAT...Winds 40 mph.\n\n* WHERE...Luna County.\n' + '\n* WHEN...' + 'x '.repeat(400));
   assert.ok(s.length <= 320); assert.match(s, /^WHAT/);
   assert.strictEqual(summarizeAlert(''), '');
+});
+
+test('lazy mmdb: not loaded until the first no-zip request; zip requests never load it; concurrent firsts share one load', async () => {
+  let loads = 0, release;
+  const gate = new Promise((r) => { release = r; });
+  const loc = createIpLocator({ zcta: ZCTA, loadReader: () => { loads++; return gate.then(() => stubReader); } });
+  const s = await serve({ wx: createWx({ apiKey: KEY, fetch: stubFetch([]) }), locator: loc, trustProxy: true });
+  assert.strictEqual(loc.loaded(), false, 'nothing loaded at startup');
+  await fetch(url(s, '?zip=88030'), { headers: { 'X-Forwarded-For': '8.8.8.8' } });
+  assert.strictEqual(loads, 0, 'zip request does not load the DB');
+  const h = { headers: { 'X-Forwarded-For': '8.8.8.8' } };
+  const ps = [fetch(url(s), h), fetch(url(s), h), fetch(url(s), h)];
+  await new Promise((r) => setTimeout(r, 50));
+  release();
+  const js = await Promise.all(ps.map(async (p) => (await p).json()));
+  assert.ok(js.every((j) => j.zip === '94043' && j.estimated));
+  assert.strictEqual(loads, 1, 'single shared load promise');
+  s.close();
+});
+
+test('real mmdb loader on a missing path resolves to no estimate (no throw)', async () => {
+  const loc = createIpLocator({ mmdbPath: '/nonexistent/dbip.mmdb', zcta: ZCTA });
+  assert.strictEqual(await loc.estimateZip('8.8.8.8'), null);
+});
+
+test('API key is read from process.env at call time (as dotenv fills it from .env)', async () => {
+  const prev = process.env.WEATHERUSA_API_KEY;
+  delete process.env.WEATHERUSA_API_KEY;
+  const calls = [];
+  const wx = createWx({ fetch: stubFetch(calls) });
+  await assert.rejects(wx.get('88030'), (e) => e.code === 'config');
+  process.env.WEATHERUSA_API_KEY = KEY;
+  try { await wx.get('88030'); assert.ok(calls.every((c) => c.auth === 'Bearer ' + KEY)); }
+  finally { if (prev === undefined) delete process.env.WEATHERUSA_API_KEY; else process.env.WEATHERUSA_API_KEY = prev; }
 });
