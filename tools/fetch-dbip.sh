@@ -21,6 +21,7 @@ for yr in "$y" $((y-1)) $((y-2)); do
   if curl -fsSL -o "$tmp/z.zip" "https://www2.census.gov/geo/docs/maps-data/data/gazetteer/${yr}_Gazetteer/${yr}_Gaz_zcta_national.zip"; then got=1; echo "Census ZCTA gazetteer $yr downloaded"; break; fi
 done
 [ "$got" = 1 ] || { echo "ZCTA gazetteer download failed" >&2; exit 1; }
-(cd "$tmp" && unzip -oq z.zip)
-node tools/build-zcta.js "$(ls "$tmp"/*.txt | head -1)" data/zcta-centroids.json
+# CHG-147: extract with node (no unzip dependency); writes the first .txt in the zip to $tmp/zcta.txt
+node tools/unzip-first-txt.js "$tmp/z.zip" "$tmp/zcta.txt"
+node tools/build-zcta.js "$tmp/zcta.txt" data/zcta-centroids.json
 ls -la data/dbip-city-lite.mmdb data/zcta-centroids.json
