@@ -80,6 +80,12 @@ app.all('/api/safe-link', safeLinkRoute());
 const memberCount = memberCountRoute(path.join(__dirname, 'users.json'));
 app.all('/api/member-count', memberCount.handler);
 
+// CHG-145: GET /api/wx[?zip=NNNNN] -> Weather Radio alerts + short forecast (weatherUSA, key WEATHERUSA_API_KEY stays here).
+// No zip: area estimated once from the client address (offline DB-IP Lite + Census ZCTA in data/, see tools/fetch-dbip.sh;
+// missing files = no estimate); the address is never logged or stored. Same pattern as member-count: BEFORE the global
+// cors(), only the two homepage origins, own OPTIONS, no credentials, 20/min per visitor, 5 min per-ZIP cache.
+app.all('/api/wx', require('./lib/wx').wxRoute());
+
 // CHG-133: Tailgate Party mode. GET /api/tailgate (public state), POST /api/tailgate (Bearer TAILGATE_TOKEN; off if unset).
 // Override persisted in tailgate.json (gitignored). Auto mode polls Rumble every 2 min only inside TAILGATE_WINDOW (default Mon-Fri 21:00-22:00 America/New_York) plus live carryover (TAILGATE_POLL=0 disables polling).
 const tailgateState = tailgate.createTailgateState({ file: path.join(__dirname, 'tailgate.json') });

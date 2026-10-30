@@ -1,3 +1,17 @@
+# CHG-145: Weather Radio API - GET /api/wx (alerts + short forecast from weatherUSA; area estimated offline from the visitor IP)
+
+Prepared 2026-10-29, committed locally, not pushed, not deployed. Base `4397aa6` (CHG-144).
+
+| File | Change |
+|---|---|
+| `lib/wx.js` | New. `wxRoute()`: `GET /api/wx?zip=NNNNN` (validated `/^\d{5}$/`) or `GET /api/wx` (ZIP estimated from the client address: DB-IP Lite City mmdb -> lat/lon -> nearest Census ZCTA centroid; US only; private/unknown -> none). weatherUSA `v1/place` (24 h cache), `v1.2/alerts&data=1`, `v1/forecast?daily=1&maxtime=2d`; Bearer `WEATHERUSA_API_KEY`, never sent to the browser. 5 min per-ZIP cache, upstream budget 8/min, 20/min per visitor (CHG-106 `rateKey`: last X-Forwarded-For only with TRUST_PROXY=1 + loopback peer). CORS like member-count (two homepage origins, no credentials). IPs never logged or stored. Missing data files = no estimate. |
+| `server.js` | Mounts `/api/wx` before the global cors(), next to member-count. |
+| `tools/fetch-dbip.sh`, `tools/build-zcta.js` | Download DB-IP Lite (CC BY 4.0) + Census ZCTA gazetteer into `data/` (gitignored). Re-run monthly. |
+| `test/wx.test.js` | 13 tests (zip validation, cache, missing DB, IP estimate stub, XFF trust, key not leaked, CORS, rate limit, errors, upstream budget). |
+| `package.json` | `mmdb-lib` dependency; wx test added to `npm test`. |
+
+Deploy: `git pull && npm ci`, add `WEATHERUSA_API_KEY` to the pm2 env, `tools/fetch-dbip.sh`, `pm2 restart "Eagles Nest" --update-env`.
+
 # CHG-143: Neagle's private reply to a muted guest is reworded and uses the guest's name
 
 Prepared 2026-10-25 on the deliberate track: committed locally by Andy's identity, not pushed, not deployed. Base `6938adb` (CHG-142, live). Andy: "Guest-number, I'll need some more keystrokes from you before I'll let you talk in here. You're at 6/100."

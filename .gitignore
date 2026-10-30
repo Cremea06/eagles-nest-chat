@@ -12,3 +12,6 @@ clips.json.tmp
 tombstones.json
 tombstones.json.tmp
 *.bak-*
+# CHG-145: Weather Radio offline data (tools/fetch-dbip.sh) - large, never commit
+/data/dbip-city-lite.mmdb
+/data/zcta-centroids.json
