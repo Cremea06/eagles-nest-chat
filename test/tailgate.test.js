@@ -18,7 +18,7 @@ const url = (s) => 'http://127.0.0.1:' + s.address().port + '/api/tailgate';
 const post = (s, body, auth = 'Bearer ' + TOKEN) => fetch(url(s), { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, auth ? { Authorization: auth } : {}), body: typeof body === 'string' ? body : JSON.stringify(body) });
 
 test('default is auto + normal', () => {
-  assert.deepStrictEqual(T.createTailgateState().get(), { mode: 'normal', override: 'auto', live: false, embedId: null });
+  assert.deepStrictEqual(T.createTailgateState().get(), { mode: 'normal', override: 'auto', live: false, embedId: null, source: null, twitch: false, twitchChannel: 'zackrawrr' });
 });
 
 test('auto follows detector; stale after 10 min without confirmation; failures keep last state', () => {
@@ -54,11 +54,11 @@ test('override persists across restarts; corrupt file -> defaults', () => {
   const f = tmpFile();
   T.createTailgateState({ file: f }).setOverride('on', 'v7endym');
   const again = T.createTailgateState({ file: f }).get();
-  assert.deepStrictEqual(again, { mode: 'tailgate', override: 'on', live: false, embedId: 'v7endym' });
+  assert.deepStrictEqual(again, { mode: 'tailgate', override: 'on', live: false, embedId: 'v7endym', source: 'rumble', twitch: false, twitchChannel: 'zackrawrr' });
   assert.ok(!/token/i.test(fs.readFileSync(f, 'utf8')));
   fs.writeFileSync(f, '{nope'); assert.strictEqual(T.createTailgateState({ file: f }).get().override, 'auto');
   fs.writeFileSync(f, JSON.stringify({ override: 'evil', embedId: '"><script>' }));
-  assert.deepStrictEqual(T.createTailgateState({ file: f }).get(), { mode: 'normal', override: 'auto', live: false, embedId: null });
+  assert.deepStrictEqual(T.createTailgateState({ file: f }).get(), { mode: 'normal', override: 'auto', live: false, embedId: null, source: null, twitch: false, twitchChannel: 'zackrawrr' });
 });
 
 test('embed validation', () => {
@@ -84,7 +84,7 @@ test('HTTP: GET public state, POST 401s, 404 when token unset, validation, succe
   const s = await serve(st);
   const g = await fetch(url(s)); const gt = await g.text();
   assert.strictEqual(g.status, 200);
-  assert.deepStrictEqual(Object.keys(JSON.parse(gt)).sort(), ['embedId', 'live', 'mode', 'override']);
+  assert.deepStrictEqual(Object.keys(JSON.parse(gt)).sort(), ['embedId', 'live', 'mode', 'override', 'source', 'twitch', 'twitchChannel']);
   assert.ok(!gt.includes(TOKEN));
   assert.strictEqual((await post(s, { mode: 'on' }, null)).status, 401);
   assert.strictEqual((await post(s, { mode: 'on' }, 'Bearer wrong')).status, 401);
@@ -97,7 +97,7 @@ test('HTTP: GET public state, POST 401s, 404 when token unset, validation, succe
   assert.strictEqual((await post(s, { mode: 'off', embedId: 'abc123' })).status, 400);
   const ok = await post(s, { mode: 'on', embedUrl: 'https://rumble.com/embed/v7endym/' });
   assert.strictEqual(ok.status, 200);
-  assert.deepStrictEqual(await ok.json(), { mode: 'tailgate', override: 'on', live: false, embedId: 'v7endym' });
+  assert.deepStrictEqual(await ok.json(), { mode: 'tailgate', override: 'on', live: false, embedId: 'v7endym', source: 'rumble', twitch: false, twitchChannel: 'zackrawrr' });
   assert.strictEqual((await (await post(s, { mode: 'auto' })).json()).mode, 'normal');
   assert.strictEqual((await fetch(url(s), { method: 'PUT' })).status, 405);
   s.close();
@@ -215,4 +215,41 @@ test('manual override works outside the window; auto outside is normal', async (
   assert.strictEqual(a.st.get().mode, 'normal');
   assert.strictEqual(a.st.setOverride('on', 'abc123').mode, 'tailgate');
   assert.strictEqual(a.st.setOverride('off').mode, 'normal');
+});
+
+// ---- CHG-156: manual Twitch source -------------------------------------------------------------------------
+test('CHG-156 twitch: manual on/off, Rumble wins, off clears twitch, auto/on keep it, persisted', () => {
+  const f = tmpFile(); const st = T.createTailgateState({ file: f });
+  let g = st.setTwitch(true);
+  assert.deepStrictEqual(g, { mode: 'tailgate', override: 'auto', live: false, embedId: null, source: 'twitch', twitch: true, twitchChannel: 'zackrawrr' });
+  assert.strictEqual(T.createTailgateState({ file: f }).get().source, 'twitch');      // survives restart
+  g = st.report({ live: true, embedId: 'v7endym' });                                  // Rumble live in auto -> Rumble wins
+  assert.strictEqual(g.source, 'rumble'); assert.strictEqual(g.embedId, 'v7endym'); assert.strictEqual(g.twitch, true);
+  g = st.report({ live: false }); assert.strictEqual(g.source, 'twitch');              // back to Twitch when Rumble ends
+  g = st.setOverride('on', 'abc123'); assert.strictEqual(g.source, 'rumble'); assert.strictEqual(g.twitch, true);
+  g = st.setOverride('auto'); assert.strictEqual(g.source, 'twitch');
+  g = st.setOverride('off'); assert.strictEqual(g.mode, 'normal'); assert.strictEqual(g.twitch, false); assert.strictEqual(g.source, null);
+  g = st.setTwitch(true); assert.strictEqual(g.source, 'twitch'); assert.strictEqual(g.override, 'off'); // twitch-on after off works
+  st.report({ live: true, embedId: 'v7endym' }); assert.strictEqual(st.get().source, 'twitch');                  // Rumble off stays off
+  g = st.setTwitch(false); assert.strictEqual(g.mode, 'normal');
+  const raw = fs.readFileSync(f, 'utf8'); assert.ok(/"twitch":false/.test(raw));
+});
+
+test('CHG-156 twitch over HTTP: auth required, validation, never polls', async () => {
+  const st = T.createTailgateState({ file: tmpFile() });
+  const s = await serve(st);
+  try {
+    assert.strictEqual((await post(s, { source: 'twitch', mode: 'on' }, null)).status, 401);
+    assert.strictEqual((await post(s, { source: 'youtube', mode: 'on' })).status, 400);
+    assert.strictEqual((await post(s, { source: 'twitch', mode: 'auto' })).status, 400);
+    assert.strictEqual((await post(s, { source: 'twitch', mode: 'on', embedId: 'abc123' })).status, 400);
+    let r = await post(s, { source: 'twitch', mode: 'on' }); assert.strictEqual(r.status, 200);
+    let j = await r.json(); assert.strictEqual(j.source, 'twitch'); assert.strictEqual(j.mode, 'tailgate');
+    j = await (await fetch(url(s))).json(); assert.strictEqual(j.twitch, true);
+    r = await post(s, { mode: 'on', embedId: 'abc123' }); j = await r.json(); assert.strictEqual(j.source, 'rumble');   // old API unchanged
+    r = await post(s, { source: 'rumble', mode: 'auto' }); j = await r.json(); assert.strictEqual(j.source, 'twitch');  // explicit rumble source ok
+    r = await post(s, { source: 'twitch', mode: 'off' }); j = await r.json(); assert.strictEqual(j.mode, 'normal');
+  } finally { s.close(); }
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'tailgate.js'), 'utf8');
+  assert.ok(!/fetch[^\n]*twitch\.tv/i.test(src), 'no Twitch fetch anywhere in tailgate.js');
 });

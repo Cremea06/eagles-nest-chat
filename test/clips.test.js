@@ -62,6 +62,14 @@ test('context: room / tailgate / golive (allow on only)', () => {
   assert.deepStrictEqual(C.computeContext({ broadcasters: [{ username: 'Bob', allowClips: true }] }), { kind: 'golive', broadcaster: 'Bob', title: 'Bob live in Milliway' });
 });
 
+test('CHG-156 context: manual Twitch tailgate -> kind twitch; golive still wins; render links fixed channel', () => {
+  const tw = C.computeContext({ tailgate: { mode: 'tailgate', source: 'twitch', embedId: null }, tgStartedAt: 1000, now: 61000 });
+  assert.deepStrictEqual(tw, { kind: 'twitch', title: 'zackrawrr live on Twitch', channel: 'zackrawrr', url: 'https://www.twitch.tv/zackrawrr' });
+  assert.strictEqual(C.computeContext({ broadcasters: [{ username: 'Bob', allowClips: false }], tailgate: { mode: 'tailgate', source: 'twitch' } }).kind, 'room');
+  const html = C.renderClipPage({ id: 'abcdefgh', createdAt: Date.now(), clipper: 'A', context: tw, caption: '', lines: [{ user: 'A', text: 'hi', t: 0 }] });
+  assert.ok(html.includes('https://www.twitch.tv/zackrawrr')); assert.ok(html.includes('LIVE on Twitch'));
+});
+
 test('save: guest + member can clip; server copies its own lines; client text ignored', async () => {
   const e = await setup(); const ls = fill(e.buffer, 5);
   let r = await req(e, 'POST', '/api/clips', { who: 'g-Guest-User 1234', body: { fromId: ls[1].id, toId: ls[3].id, caption: 'hi', lines: [{ user: 'Fake', text: 'invented' }] } });

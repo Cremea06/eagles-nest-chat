@@ -101,7 +101,7 @@ const clipStore = clips.createClipStore({ file: path.join(__dirname, 'clips.json
 const clipSessions = new Map(); // token -> socket
 let tgStartedAt = 0; let tgLastEmbed = null;
 function trackTailgateStart(st) {
-  const id = st && st.mode === 'tailgate' ? st.embedId : null;
+  const id = st && st.mode === 'tailgate' ? (st.source === 'twitch' ? 'twitch:' + st.twitchChannel : st.embedId) : null; // CHG-156
   if (id !== tgLastEmbed) { tgLastEmbed = id; tgStartedAt = id ? Date.now() : 0; }
 }
 trackTailgateStart(tailgateState.get());

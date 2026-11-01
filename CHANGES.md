@@ -1,3 +1,15 @@
+# CHG-156: Tailgate Party second source - zackrawrr on Twitch (manual only, never polled)
+
+Prepared 2026-11-01, committed locally, not pushed, not deployed. Base `957337e` (CHG-154).
+
+| File | Change |
+|---|---|
+| `lib/tailgate.js` | State gains a persisted `twitch` switch (tailgate.json `"twitch":true/false`). `POST /api/tailgate {source:'twitch', mode:'on'/'off'}` (same Bearer token, same limits). GET adds `source` (`null`/`rumble`/`twitch`), `twitch`, `twitchChannel` (fixed `zackrawrr`). Precedence: Rumble wins (override `on` with id, or `auto` + live); else Twitch if on. Old `on`/`off`/`auto` unchanged; `off` also clears Twitch. No Twitch requests anywhere. |
+| `lib/clips.js` | Clip context `kind:'twitch'` (title `zackrawrr live on Twitch`, link `https://www.twitch.tv/zackrawrr`, no time offset); badge `● LIVE on Twitch`; same blurred/muted placeholder as Rumble. |
+| `server.js` | Clip start tracking keys on `twitch:zackrawrr` vs Rumble embed id. |
+| `public/index.html` | Broadcast card plays `player.twitch.tv/?channel=zackrawrr&parent=chat.afirstflag.com` (+localhost only when local) after pressing Tailgate Party; "Watch on Twitch" link; clip tray badge. |
+| `test/tailgate.test.js`, `test/clips.test.js` | Shape updates + CHG-156 tests (precedence, persistence, HTTP validation/auth, clip context/render). |
+
 # CHG-145: Weather Radio API - GET /api/wx (alerts + short forecast from weatherUSA; area estimated offline from the visitor IP)
 
 Prepared 2026-10-29, committed locally, not pushed, not deployed. Base `4397aa6` (CHG-144).

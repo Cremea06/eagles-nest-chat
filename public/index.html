@@ -433,7 +433,7 @@
 
     .viewport.streaming .placeholder { display: none; }
 
-    /* CHG-133: Tailgate Party mode (Rumble live stream inside the Broadcast card) */
+    /* CHG-133: Tailgate Party mode (Rumble live stream inside the Broadcast card); CHG-156: or zackrawrr on Twitch (manual) */
     .viewport iframe.tg-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
     #tgBtn, #tgLink { display: none; }
     #liveCard.tailgate #tgBtn { display: block; }
@@ -765,21 +765,38 @@
     const placeholderEl = document.getElementById('placeholder');
     const PLACEHOLDER_NORMAL = placeholderEl.innerHTML;
     const TG_EMBED_RE = /^[a-z0-9]+$/i;
-    let tg = { mode: 'normal', embedId: null };
+    // CHG-156: manual Twitch source. Channel is fixed here (not taken from the server). Twitch needs parent= the page host.
+    const TW_CHANNEL = 'zackrawrr';
+    const TW_URL = 'https://www.twitch.tv/' + TW_CHANNEL;
+    function twitchParents(host) {
+      const p = ['chat.afirstflag.com'];
+      if (host === 'localhost' || host === '127.0.0.1') p.push(host); // local testing only
+      return p;
+    }
+    function twitchSrc(host) {
+      return 'https://player.twitch.tv/?channel=' + TW_CHANNEL + twitchParents(host).map(d => '&parent=' + d).join('') + '&autoplay=true&muted=false';
+    }
+    window.AFF_TG = { twitchParents, twitchSrc };
+    let tg = { mode: 'normal', embedId: null, source: null };
     function tgStop() {
       const f = viewport.querySelector('iframe.tg-frame');
       if (f) f.remove();
       liveCard.classList.remove('tg-playing');
     }
     function applyTailgate(st) {
-      const on = !!(st && st.mode === 'tailgate' && typeof st.embedId === 'string' && TG_EMBED_RE.test(st.embedId));
-      const prevId = tg.embedId;
-      tg = { mode: on ? 'tailgate' : 'normal', embedId: on ? st.embedId : null };
-      if (!on || prevId !== tg.embedId) tgStop();
+      const ru = !!(st && st.mode === 'tailgate' && st.source !== 'twitch' && typeof st.embedId === 'string' && TG_EMBED_RE.test(st.embedId));
+      const tw = !ru && !!(st && st.mode === 'tailgate' && st.source === 'twitch');
+      const on = ru || tw;
+      const prevKey = tg.source + ':' + tg.embedId;
+      tg = { mode: on ? 'tailgate' : 'normal', embedId: ru ? st.embedId : null, source: ru ? 'rumble' : (tw ? 'twitch' : null) };
+      if (!on || prevKey !== tg.source + ':' + tg.embedId) tgStop();
+      liveCard.classList.toggle('tg-twitch', tw);
+      tgLinkA.textContent = tw ? 'Watch on Twitch' : 'Watch on Rumble';
+      if (!liveCard.classList.contains('tg-playing')) tgLinkA.href = tw ? TW_URL : 'https://rumble.com/c/nickjfuentes';
       liveCard.classList.toggle('tailgate', on && !amLive);
       liveTitle.textContent = on ? 'Tailgate Party' : 'Broadcast';
       if (on && !amLive && !liveCard.classList.contains('tg-playing')) {
-        placeholderEl.textContent = 'Nick Fuentes is live on Rumble.';
+        placeholderEl.textContent = tw ? TW_CHANNEL + ' on Twitch.' : 'Nick Fuentes is live on Rumble.';
         setStatus('Press Tailgate Party to watch.');
       } else if (!on) {
         placeholderEl.innerHTML = PLACEHOLDER_NORMAL;
@@ -787,7 +804,22 @@
       }
     }
     tgBtn.addEventListener('click', () => {
-      if (tg.mode !== 'tailgate' || !TG_EMBED_RE.test(tg.embedId || '')) return;
+      if (tg.mode !== 'tailgate') return;
+      if (tg.source === 'twitch') { // CHG-156
+        tgStop();
+        const f = document.createElement('iframe');
+        f.className = 'tg-frame';
+        f.src = twitchSrc(location.hostname);
+        f.title = TW_CHANNEL + ' on Twitch';
+        f.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+        f.setAttribute('allowfullscreen', '');
+        viewport.appendChild(f);
+        tgLinkA.href = TW_URL;
+        liveCard.classList.add('tg-playing');
+        setStatus('Tailgate Party on Twitch.');
+        return;
+      }
+      if (!TG_EMBED_RE.test(tg.embedId || '')) return;
       tgStop();
       const f = document.createElement('iframe');
       f.className = 'tg-frame';
@@ -1406,7 +1438,7 @@
       function drawSlot(c) {
         slot.textContent = ''; slot.className = 'mslot' + (c.kind === 'room' ? ' room' : '');
         if (c.kind !== 'room') {
-          var bd = document.createElement('span'); bd.className = 'mbadge'; bd.textContent = c.kind === 'tailgate' ? '\u25CF LIVE on Rumble' : '\u25CF LIVE \u00B7 ' + c.broadcaster; slot.appendChild(bd);
+          var bd = document.createElement('span'); bd.className = 'mbadge'; bd.textContent = c.kind === 'tailgate' ? '\u25CF LIVE on Rumble' : c.kind === 'twitch' ? '\u25CF LIVE on Twitch' : '\u25CF LIVE \u00B7 ' + c.broadcaster; slot.appendChild(bd);
           slot.appendChild(document.createTextNode('(blurred stream frame)'));
           var ti = document.createElement('span'); ti.className = 'mtitle'; ti.textContent = c.title || ''; slot.appendChild(ti);
           var mu = document.createElement('span'); mu.className = 'mmute'; mu.textContent = '\uD83D\uDD07'; slot.appendChild(mu);
