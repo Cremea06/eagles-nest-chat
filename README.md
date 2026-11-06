@@ -224,3 +224,43 @@ How: the page counts trusted key presses (a character or Backspace; not Ctrl/Cmd
 ### Held keys count, at normal speed only (CHG-142)
 
 Holding a key down (auto-repeat) counts as keystrokes, but only up to the normal OS default repeat speed; anything faster counts for nothing. The ceiling is one counted keystroke per 30 ms (33.3 per second sustained), with a small burst allowance (4 keys on the page for fast typists/rollover, 15 per report on the server). That sits just under the quickest everyday default (Windows ~30 chars/s after a 500 ms delay; GNOME 30 ms) and equals the fastest setting macOS's settings screen offers (macOS default is ~11/s, X11 `xset` default 25/s). A key repeating faster than that (terminal-only tweaks, macros, scripts) is simply not counted: no error, no penalty. All the numbers live in ONE file, `public/keystroke-limits.js`, which the chat page loads and the server `require`s, so the page limiter and the server cap cannot drift apart. The server enforces the ceiling on its own (credit <= 15 + 33.3 x elapsed seconds, whatever the page claims); a default-speed hold reaches 100 in about 3.5-4 s, a forged "I am at 100" report not before about 2.6 s. A hold can only be counted from real (trusted) key events; synthetic events never count. Tests: `test/keystroke-limits.test.js` (page limiter and which keys count), `test/keystroke-gate.test.js` and `test/keystroke-gate.server.test.js`.
+
+### Terminal client (Linux/macOS)
+
+Join Milliway as a **server-assigned Guest-User**, without a browser. Node **18+**
+is required (use a supported Node 22/24 release for new installs). On Ubuntu 26.04:
+
+```sh
+sudo apt update
+sudo apt install -y nodejs npm git
+node --version
+npm --version
+git clone https://github.com/Cremea06/eagles-nest-chat.git
+cd eagles-nest-chat
+npm install --prefix tools
+node tools/milliway-cli.js
+# For a private/local room instead:
+node tools/milliway-cli.js --url http://127.0.0.1:3000
+```
+
+On macOS install Node 22/24 from https://nodejs.org/ first, then use the same
+clone/install/run commands (skip apt). Only `tools/` dependencies are installed;
+you do not need to run the server or create a `.env` file.
+
+Commands: `/help`, `/who`, `/quit`, `/pause`, `/resume`. The last two change the
+**shared room switch for everyone**, subject to the server's cooldown. While
+paused, others' messages/system lines/clips are held in memory (latest 500), your
+own messages appear immediately, and held lines flush on resume. Reconnection
+uses backoff and rejoins with a new guest name; pending display lines reset.
+Lines typed while disconnected are not queued for later sending.
+
+The browser's guest **100-keystroke gate still applies**: type normally in an
+interactive terminal until “Chat typing unlocked.” Real character/backspace
+keypresses count at the same speed ceiling as the browser. Pasting a block or
+piping input does not bypass it. Commands remain available before unlocking.
+
+Privacy: guest-only, no login/cookie, no local chat log or credentials saved by
+the client. Messages go to the room and may be retained by its server, public
+last-five feed, or other participants. Your terminal's scrollback/session recorder
+may retain displayed text. Remote text is stripped of terminal control sequences.
+Do not put secrets into a public room.

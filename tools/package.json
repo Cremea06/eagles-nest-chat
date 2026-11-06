@@ -1,0 +1,12 @@
+{
+  "name": "milliway-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Optional terminal client; separate from server dependencies",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "socket.io-client": "4.8.3"
+  }
+}
