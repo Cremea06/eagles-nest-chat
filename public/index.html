@@ -316,8 +316,8 @@
 
     #worldCard .live-head { margin-bottom: 8px; }
 
-    /* CHG-160: Chat On/Off slide switch (Off | gold-ring knob | On), same pattern as Shop CHG-148 Weather Radio.
-       Sits in #sideCol between Broadcast and Open World; hides/shows Milliway #chat for every joiner. */
+    /* CHG-160/161: Chat On/Off slide switch (Off | gold-ring knob | On), same pattern as Shop CHG-148 Weather Radio.
+       Sits in #sideCol between Broadcast and Open World. CHG-161: Off pauses (buffers) incoming lines; On flushes. */
     #chatToggleCard { display: block; padding: 12px; position: static; }
     #chatToggleCard .live-head { margin-bottom: 8px; }
     #chatToggleCard .chat-switch-row { display: flex; align-items: center; justify-content: flex-start; }
@@ -335,17 +335,22 @@
     .chat-switch[aria-checked="true"] .chat-knob { transform: translateX(34px); background: #f4c430; box-shadow: 0 0 8px rgba(244,196,48,0.7); }
     .chat-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     @media (prefers-reduced-motion: reduce) { .chat-knob, .chat-track, .chat-sw-lbl { transition: none; } }
-    body.nest-on.chat-off #chat { display: none !important; }
-    body.nest-on.chat-off {
-      grid-template-columns: 1fr minmax(280px, 340px) 1fr;
+    /* CHG-161: Off = paused (chat stays visible). Bar sits under #messages. */
+    #chatPauseBar {
+      display: none;
+      flex-shrink: 0;
+      margin: 0 1.25rem 0.55rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 10px;
+      border: 1px solid rgba(244, 196, 48, 0.45);
+      background: rgba(244, 196, 48, 0.12);
+      color: #f4c430;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      text-align: center;
     }
-    body.nest-on.chat-off #sideCol { grid-column: 2; }
-    @media (max-width: 1100px) {
-      body.nest-on.chat-off {
-        grid-template-columns: 1fr minmax(280px, 920px) 1fr;
-      }
-      body.nest-on.chat-off #sideCol { grid-column: 2; position: static; }
-    }
+    body.chat-paused #chatPauseBar { display: block; }
 
     /* CHG-036 — Who's here presence card */
     #whoCard { display: block; padding: 12px; position: static; }
@@ -654,6 +659,7 @@
       <span id="usageChip">Neagle: 0 tok / 0 calls</span>
     </h2>
     <div id="messages"></div>
+    <div id="chatPauseBar" role="status" aria-live="polite">Chat paused</div>
     <div id="privDock">
       <div id="privPane" class="glass">
         <div id="privHead"><button id="privClose" type="button" aria-label="Close" title="Close (Esc)">&times;</button></div>
@@ -740,7 +746,7 @@
     </div>
   </aside>
 
-  <!-- CHG-160: Chat On/Off (default On). Between Broadcast and Open World; every joiner. -->
+  <!-- CHG-160/161: Chat On/Off (default On). Between Broadcast and Open World; every joiner. Off = pause. -->
   <aside id="chatToggleCard" class="glass">
     <div class="live-head">
       <h3>Chat</h3>
@@ -1053,16 +1059,24 @@
       if (typeof window.AFF_applyChatPower === 'function') window.AFF_applyChatPower();
     }
 
-    /* CHG-160: Chat On/Off. Default On. Per-visitor localStorage (aff-nest-chat = "on"|"off").
-       Hides/shows Milliway #chat; layout uses body.chat-off so #sideCol stays tidy. */
+    /* CHG-161: Chat On/Off. Default On. localStorage aff-nest-chat ("on"|"off").
+       Off = pause: #chat stays visible; others' chat/system/clip lines buffer (cap 500);
+       own chat lines still render. On = flush buffer in order via the normal render path.
+       Cold start with stored Off: welcome/join lines from the server render, then pause arms. */
     (function () {
       var KEY = 'aff-nest-chat';
+      var CAP = 500;
       var power = document.getElementById('chat-power');
       var plabel = document.getElementById('chat-power-label');
-      var chatEl = document.getElementById('chat');
-      var messages = document.getElementById('messages');
-      var input = document.getElementById('input');
-      if (!power || !plabel || !chatEl) return;
+      var bar = document.getElementById('chatPauseBar');
+      var messagesEl = document.getElementById('messages');
+      var inputEl = document.getElementById('input');
+      if (!power || !plabel || !bar || !messagesEl) return;
+
+      var paused = false;
+      var coldStart = true;
+      var buf = [];
+      var dropped = 0;
 
       function readPref() {
         try {
@@ -1070,31 +1084,125 @@
           if (v === 'off') return false;
           if (v === 'on') return true;
         } catch (e) {}
-        return true; // default On
+        return true;
       }
       function writePref(on) {
         try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch (e) {}
       }
+
+      function baseChatName(u) {
+        u = String(u || '');
+        if (/ \(flagholder\)$/.test(u)) u = u.replace(/ \(flagholder\)$/, '');
+        if (/^[A-Z]{2} /.test(u)) u = u.slice(3);
+        return u;
+      }
+      function isOwnChat(data) {
+        var mine = window.guestName;
+        if (!mine || !data) return false;
+        return baseChatName(data.username) === String(mine);
+      }
+
+      function updateBar() {
+        var held = buf.length;
+        var text;
+        if (held === 0 && dropped === 0) text = 'Chat paused';
+        else if (dropped > 0) text = 'Chat paused · ' + CAP + '+ new';
+        else text = 'Chat paused · ' + held + ' new';
+        bar.textContent = text;
+      }
+
+      function renderChatMessage(data) {
+        var div = document.createElement('div');
+        div.className = 'msg';
+        // CHG-048 — names and messages (people and Neagle) render as text, never HTML
+        var nameEl = document.createElement('span');
+        nameEl.className = data.username === 'Neagle' ? 'neagle' : 'username';
+        nameEl.textContent = data.username + ':';
+        div.appendChild(nameEl);
+        div.appendChild(document.createTextNode(' ' + data.message));
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+      function renderSystem(msg) {
+        var div = document.createElement('div');
+        div.className = 'msg system';
+        div.textContent = msg;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
+      function enqueue(kind, data) {
+        if (buf.length >= CAP) {
+          buf.shift();
+          dropped += 1;
+        }
+        buf.push({ kind: kind, data: data });
+        updateBar();
+      }
+
+      function shouldHold() {
+        return paused && !coldStart;
+      }
+
+      function flush() {
+        var items = buf;
+        buf = [];
+        dropped = 0;
+        updateBar();
+        for (var i = 0; i < items.length; i++) {
+          var it = items[i];
+          if (it.kind === 'chat') renderChatMessage(it.data);
+          else if (it.kind === 'system') renderSystem(it.data);
+          else if (it.kind === 'clip' && typeof window.AFF_renderClipLine === 'function') {
+            window.AFF_renderClipLine(it.data);
+          }
+        }
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+
       function apply(on, opts) {
         opts = opts || {};
         power.setAttribute('aria-checked', on ? 'true' : 'false');
         plabel.textContent = on ? 'On' : 'Off';
-        document.body.classList.toggle('chat-off', !on);
+        var wasPaused = paused;
+        paused = !on;
+        document.body.classList.toggle('chat-paused', paused);
         if (on) {
-          // nest-on CSS restores display:flex; clear any inline none from an older path
-          if (document.body.classList.contains('nest-on')) chatEl.style.display = 'flex';
-          if (opts.focus && input) {
-            try { input.focus({ preventScroll: true }); } catch (e) { try { input.focus(); } catch (e2) {} }
+          if (wasPaused) flush();
+          else { buf = []; dropped = 0; updateBar(); }
+          if (opts.focus && inputEl) {
+            try { inputEl.focus({ preventScroll: true }); } catch (e) { try { inputEl.focus(); } catch (e2) {} }
           }
-          if (messages) messages.scrollTop = messages.scrollHeight;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        } else {
+          updateBar();
         }
       }
+
       window.AFF_applyChatPower = function () { apply(readPref(), {}); };
+      window.AFF_chatHoldIncoming = function (kind, data) {
+        if (kind === 'chat' && isOwnChat(data)) { renderChatMessage(data); return true; } // handled (do not render again)
+        if (shouldHold()) { enqueue(kind, data); return true; }
+        return false;
+      };
+      window.AFF_renderChatMessage = renderChatMessage;
+      window.AFF_renderSystemMessage = renderSystem;
+      window.AFF_chatMarkJoined = function () {
+        if (!readPref()) {
+          // Settle so the server's welcome system line (right after joined) renders before pause arms.
+          setTimeout(function () { coldStart = false; updateBar(); }, 250);
+        } else {
+          coldStart = false;
+        }
+      };
 
       apply(readPref(), {});
+      if (readPref()) coldStart = false;
+
       power.addEventListener('click', function () {
         var next = power.getAttribute('aria-checked') !== 'true';
         writePref(next);
+        if (!next) coldStart = false;
         apply(next, { focus: next });
       });
     })();
@@ -1124,6 +1232,7 @@
 
     socket.on('joined', (data) => {
       window.guestName = data && data.username;
+      if (typeof window.AFF_chatMarkJoined === 'function') window.AFF_chatMarkJoined();
     });
 
     // CHG-115: 'My profile' link for members (guests are 'Guest-User NNNN').
@@ -1362,25 +1471,15 @@
       });
     })();
 
+    // CHG-048 / CHG-161 — text-only lines; while Chat is Off, others' lines buffer (own chat still renders).
     socket.on('chat message', (data) => {
-      const div = document.createElement('div');
-      div.className = 'msg';
-      // CHG-048 — names and messages (people and Neagle) render as text, never HTML
-      const nameEl = document.createElement('span');
-      nameEl.className = data.username === 'Neagle' ? 'neagle' : 'username';
-      nameEl.textContent = data.username + ':';
-      div.appendChild(nameEl);
-      div.appendChild(document.createTextNode(' ' + data.message));
-      messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
+      if (window.AFF_chatHoldIncoming && window.AFF_chatHoldIncoming('chat', data)) return;
+      window.AFF_renderChatMessage(data);
     });
 
     socket.on('system', (msg) => {
-      const div = document.createElement('div');
-      div.className = 'msg system';
-      div.textContent = msg;
-      messages.appendChild(div);
-      messages.scrollTop = messages.scrollHeight;
+      if (window.AFF_chatHoldIncoming && window.AFF_chatHoldIncoming('system', msg)) return;
+      window.AFF_renderSystemMessage(msg);
     });
 
     // CHG-036 — Who's here: server-authoritative presence roster
@@ -1600,6 +1699,11 @@
       var voteEls = {};
       socket.on('clip:new', function (c) {
         if (!c || !/^[A-Za-z0-9_-]{8}$/.test(c.id)) return;
+        if (window.AFF_chatHoldIncoming && window.AFF_chatHoldIncoming('clip', c)) return;
+        window.AFF_renderClipLine(c);
+      });
+      window.AFF_renderClipLine = function (c) {
+        if (!c || !/^[A-Za-z0-9_-]{8}$/.test(c.id)) return;
         var d = document.createElement('div'); d.className = 'msg system clipline'; d.dataset.clip = c.id;
         var tx = document.createElement('span'); tx.className = 'ctext'; tx.textContent = '\uD83C\uDFAC ' + c.clipper + ' clipped a moment'; d.appendChild(tx);
         var v = document.createElement('button'); v.type = 'button'; v.textContent = '\u25B2 ' + (c.votes || 0); voteEls[c.id] = v;
@@ -1608,7 +1712,7 @@
         var o = document.createElement('a'); o.href = '/c/' + c.id; o.target = '_blank'; o.rel = 'noopener'; o.textContent = 'Open \u2197'; d.appendChild(o);
         if (c.caption) { var cp = document.createElement('span'); cp.className = 'ccap'; cp.textContent = c.caption; d.appendChild(cp); }
         messages.appendChild(d); messages.scrollTop = messages.scrollHeight;
-      });
+      };
       socket.on('clip:votes', function (d) { var v = d && voteEls[d.id]; if (v) v.textContent = '\u25B2 ' + d.votes; });
       socket.on('clip:removed', function (d) { var el = d && messages.querySelector('[data-clip="' + d.id + '"]'); if (el) el.remove(); });
       // broadcaster: 'Allow clipping' (default off, changeable mid-stream) + 'Remove my clips'

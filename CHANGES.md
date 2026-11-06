@@ -1,3 +1,13 @@
+# CHG-161: Chat Off pauses incoming lines (buffer) instead of hiding #chat
+
+Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `9f1f143` (CHG-160).
+
+| File | Change |
+|---|---|
+| `public/index.html` | Chat Off no longer hides Milliway `#chat` or collapses the grid (CHG-160 hide/collapse CSS removed). Off = pause: a gold bar under `#messages` reads `Chat paused` or `Chat paused · N new` (or `500+ new` if the client buffer capped). Others' `chat message`, `system`, and `clip:new` lines are held client-side in order (cap 500, drop oldest); the visitor's own chat lines still render immediately (match on `joined` username, ignoring `/rep` state prefix and `(flagholder)`). On flushes the buffer through the same render path and scrolls to bottom. Input stays usable while paused. Same switch, place, `aff-nest-chat` key, default On. Cold start with stored Off: welcome/join lines from the server render, then pause arms on the next macrotask after `joined`. `/login` and `/auth` untouched. No server change. |
+
+Deploy: `git pull` in the chat app folder. Static-only; pm2 restart not required. Rollback: `git revert <hash>` (or restore `public/index.html` + `CHANGES.md` from `9f1f143`) and `git pull`.
+
 # CHG-160: Chat On/Off slide switch between Broadcast and Open World
 
 Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `6c872bf` (CHG-156).
