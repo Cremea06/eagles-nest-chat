@@ -17,6 +17,7 @@ const xhandle = require('./lib/xhandle'); // CHG-140
 const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
 const { createChatPause } = require('./lib/chatPause'); // CHG-162
+const { createTailgatePlay } = require('./lib/tailgatePlay'); // CHG-163
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
 const { profileRoute } = require('./lib/profile'); // CHG-115
 const support = require('./lib/support'); // CHG-128
@@ -91,7 +92,14 @@ app.all('/api/wx', require('./lib/wx').wxRoute());
 // Override persisted in tailgate.json (gitignored). Auto mode polls Rumble every 2 min only inside TAILGATE_WINDOW (default Mon-Fri 21:00-22:00 America/New_York) plus live carryover (TAILGATE_POLL=0 disables polling).
 const tailgateState = tailgate.createTailgateState({ file: path.join(__dirname, 'tailgate.json') });
 app.all('/api/tailgate', tailgate.tailgateRoute(tailgateState));
-tailgateState.onChange((st) => io.emit('tailgate:state', st));
+tailgateState.onChange((st) => {
+  io.emit('tailgate:state', st);
+  // CHG-163: leaving Tailgate mode drops site-wide playing
+  if (!st || st.mode !== 'tailgate') {
+    const c = tailgatePlay.clear();
+    if (c.changed) io.emit('tailgate:play', c.state);
+  }
+});
 if (process.env.TAILGATE_POLL !== '0') tailgate.startPolling(tailgateState, tailgate.rumbleDetector());
 
 // CHG-134: Clips. Anyone in Milliway (guests + members; CLIPS_MEMBERS_ONLY=1 = members only) can clip the last 30 s of chat.
@@ -833,6 +841,17 @@ function chatPauseRateKey(socket) {
   return 'sock:' + String(socket.id || 'unknown');
 }
 
+// CHG-163: site-wide Tailgate "playing" (iframe up). Cleared when admin mode leaves tailgate or on restart.
+const tailgatePlay = createTailgatePlay();
+function tailgatePlayPayload() { return tailgatePlay.state(); }
+function tailgateModeIsOn() {
+  const st = tailgateState.get();
+  return !!(st && st.mode === 'tailgate');
+}
+function tailgatePlayRateKey(socket) {
+  return 'sock:' + String(socket.id || 'unknown');
+}
+
 function handleRegistrationInput(socket, text) {
   const username = socket.username || 'Anonymous';
 
@@ -1346,6 +1365,7 @@ io.on('connection', (socket) => {
     presenceSync(socket);
     socket.emit('editmode:state', editModeState()); // CHG-058: EDIT MODE header for newcomers
     socket.emit('chat:pause', chatPausePayload()); // CHG-162: site-wide Chat On/Off
+    socket.emit('tailgate:play', tailgatePlayPayload()); // CHG-163: site-wide Tailgate playing
     supportSessions.onJoin(socket, data, () => shownName(socket)); // CHG-128: silent; Neagle greets publicly
     keyGateState(socket); // CHG-141
   });
@@ -1367,6 +1387,28 @@ io.on('connection', (socket) => {
       return;
     }
     io.emit('chat:pause', r.state);
+  });
+
+  // CHG-163: site-wide Tailgate playing. Any joiner may start/stop; boolean only; 5s global + 3/min per socket.
+  // Stop is allowed so a stuck stream is not permanent (same limits as start).
+  socket.on('tailgate:play:set', (data) => {
+    if (!socket.username) return;
+    const want = data && typeof data === 'object' && typeof data.playing === 'boolean'
+      ? data.playing
+      : (typeof data === 'boolean' ? data : null);
+    const displayName = shownName(socket);
+    const r = tailgatePlay.trySet(want, displayName, tailgatePlayRateKey(socket), {
+      modeIsTailgate: tailgateModeIsOn()
+    });
+    if (!r.ok) {
+      socket.emit('tailgate:play', Object.assign({}, r.state, { notice: r.notice || 'Could not change Tailgate.' }));
+      return;
+    }
+    if (r.unchanged) {
+      socket.emit('tailgate:play', r.state);
+      return;
+    }
+    io.emit('tailgate:play', r.state);
   });
 
   // CHG-141: the page's running keystroke COUNT (a number only). Credited at a human rate, capped per report.

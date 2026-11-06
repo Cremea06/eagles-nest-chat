@@ -1,3 +1,18 @@
+# CHG-163: site-wide Tailgate playing (anyone starts; muted join + Tap for sound)
+
+Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `7bb9b64` (CHG-162).
+
+| File | Change |
+|---|---|
+| `lib/tailgatePlay.js` (new) | In-memory `{playing, by, since}`. Default not playing. `trySet` (boolean, 5 s global cooldown, 3/min per socket); refuses start when admin mode is not `tailgate`. `clear()` when mode leaves Tailgate (no rate limit). Restart -> not playing. **Stop allowed for any joiner** (same limits) so a stuck stream is not permanent. |
+| `server.js` | Emit `tailgate:play` on join and on change. `tailgate:play:set {playing}`. On admin `tailgate:state` leaving Tailgate, clear playing and broadcast. Admin `POST /api/tailgate` / poller / `TAILGATE_TOKEN` / pin unchanged. |
+| `public/index.html` | When site `playing`, auto-insert the Tailgate iframe **muted** (Twitch `muted=true`; Rumble `autoplay=2` without `opts=enablesnd`). "Tap for sound" reloads unmuted in-gesture (Twitch `muted=false`; Rumble `autoplay=2&opts=enablesnd`). First press of Tailgate Party starts it for everyone and that tab gets sound. Stop Tailgate while playing. Status: `Tailgate started by <name>`. Go Live still stops the local iframe and hides Tailgate chrome (`setLiveUI`). Chat pause (CHG-162) untouched. |
+| `test/tailgate-play.test.js` (new), `package.json` | Unit tests for state, cooldown, per-socket limit, mode gate, clear. |
+
+Rumble param finding: community/docs use `autoplay=2` for muted autoplay and `opts=enablesnd` for sound.
+
+Deploy: `git pull` then **`pm2 restart "Eagles Nest"`**. Rollback: `git revert <hash>` + restart.
+
 # CHG-162: site-wide Chat On/Off (shared pause for every visitor)
 
 Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `1419c48` (CHG-161).

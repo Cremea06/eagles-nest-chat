@@ -487,6 +487,31 @@
     #tgLink { margin: 6px 4px 0; font-size: 0.78rem; color: #a0aec0; text-align: right; }
     #liveCard.tg-playing #tgLink { display: block; }
     #tgLink a { color: #85c1ff; }
+    /* CHG-163: Tap for sound over the Tailgate player; quiet deny notice */
+    #tgUnmute {
+      display: none;
+      width: 100%;
+      margin-top: 8px;
+      padding: 0.7rem 0.9rem;
+      border: 1px solid #f4c430;
+      border-radius: 12px;
+      background: rgba(244, 196, 48, 0.15);
+      color: #f4c430;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    #liveCard.tailgate.tg-playing.tg-muted #tgUnmute { display: block; }
+    #liveCard.tailgate.tg-playing #tgBtn { display: block; } /* Stop while playing */
+    #tgPlayNotice {
+      display: none;
+      margin-top: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #a9b6d0;
+      min-height: 1.1em;
+    }
+    #tgPlayNotice.show { display: block; }
 
     .live-status {
       min-height: 18px;
@@ -739,6 +764,8 @@
     <div class="live-actions">
       <button class="btn-live" id="goLiveBtn" type="button">Go Live</button>
       <button class="btn-live" id="tgBtn" type="button">Tailgate Party</button>
+      <button type="button" id="tgUnmute">Tap for sound</button>
+      <div id="tgPlayNotice" role="status" aria-live="polite"></div>
       <div class="chooser" id="chooser">
         <button class="choice" id="camBtn" type="button">Camera<small>Face + mic</small></button>
         <button class="choice" id="screenBtn" type="button">Screen<small>Share + mic</small></button>
@@ -814,32 +841,89 @@
       if (typeof applyTailgate === 'function' && liveCard) { if (on) tgStop(); applyTailgate(tg); } // CHG-133
     }
 
-    // CHG-133: Tailgate Party mode. State from GET /api/tailgate on load and 'tailgate:state' over the socket.
+    // CHG-133 / CHG-156 / CHG-163: Tailgate mode from GET + socket; site-wide playing from 'tailgate:play'.
     const liveCard = document.getElementById('liveCard');
     const liveTitle = document.getElementById('liveTitle');
     const tgBtn = document.getElementById('tgBtn');
+    const tgUnmute = document.getElementById('tgUnmute');
+    const tgPlayNotice = document.getElementById('tgPlayNotice');
     const tgLinkA = document.getElementById('tgLinkA');
     const placeholderEl = document.getElementById('placeholder');
     const PLACEHOLDER_NORMAL = placeholderEl.innerHTML;
     const TG_EMBED_RE = /^[a-z0-9]+$/i;
-    // CHG-156: manual Twitch source. Channel is fixed here (not taken from the server). Twitch needs parent= the page host.
     const TW_CHANNEL = 'zackrawrr';
     const TW_URL = 'https://www.twitch.tv/' + TW_CHANNEL;
     function twitchParents(host) {
       const p = ['chat.afirstflag.com'];
-      if (host === 'localhost' || host === '127.0.0.1') p.push(host); // local testing only
+      if (host === 'localhost' || host === '127.0.0.1') p.push(host);
       return p;
     }
-    function twitchSrc(host) {
-      return 'https://player.twitch.tv/?channel=' + TW_CHANNEL + twitchParents(host).map(d => '&parent=' + d).join('') + '&autoplay=true&muted=false';
+    // muted=true for autoplay on join; muted=false after Tap for sound / starter gesture
+    function twitchSrc(host, muted) {
+      return 'https://player.twitch.tv/?channel=' + TW_CHANNEL + twitchParents(host).map(d => '&parent=' + d).join('')
+        + '&autoplay=true&muted=' + (muted ? 'true' : 'false');
     }
-    window.AFF_TG = { twitchParents, twitchSrc };
+    // Rumble: autoplay=2 = muted autoplay; opts=enablesnd = with sound (community/docs usage)
+    function rumbleSrc(embedId, withSound) {
+      var u = 'https://rumble.com/embed/' + encodeURIComponent(embedId) + '/?autoplay=2';
+      if (withSound) u += '&opts=enablesnd';
+      return u;
+    }
+    window.AFF_TG = { twitchParents, twitchSrc, rumbleSrc };
     let tg = { mode: 'normal', embedId: null, source: null };
+    let tgPlay = { playing: false, by: null, since: null };
+    let tgSoundOn = false; // this tab has unmuted
+    let tgNoticeTimer = null;
+
+    function tgShowNotice(msg) {
+      if (!tgPlayNotice) return;
+      clearTimeout(tgNoticeTimer);
+      tgPlayNotice.textContent = msg || '';
+      if (msg) {
+        tgPlayNotice.classList.add('show');
+        tgNoticeTimer = setTimeout(function () {
+          tgPlayNotice.textContent = '';
+          tgPlayNotice.classList.remove('show');
+        }, 3200);
+      } else tgPlayNotice.classList.remove('show');
+    }
+
     function tgStop() {
       const f = viewport.querySelector('iframe.tg-frame');
       if (f) f.remove();
-      liveCard.classList.remove('tg-playing');
+      liveCard.classList.remove('tg-playing', 'tg-muted');
+      tgSoundOn = false;
+      if (tgBtn) tgBtn.textContent = 'Tailgate Party';
     }
+
+    function tgInsertFrame(withSound) {
+      if (tg.mode !== 'tailgate' || amLive) return;
+      tgStop();
+      const f = document.createElement('iframe');
+      f.className = 'tg-frame';
+      if (tg.source === 'twitch') {
+        f.src = twitchSrc(location.hostname, !withSound);
+        f.title = TW_CHANNEL + ' on Twitch';
+        tgLinkA.href = TW_URL;
+      } else {
+        if (!TG_EMBED_RE.test(tg.embedId || '')) return;
+        f.src = rumbleSrc(tg.embedId, !!withSound);
+        f.title = 'Nick Fuentes live on Rumble';
+        f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+        tgLinkA.href = 'https://rumble.com/embed/' + encodeURIComponent(tg.embedId) + '/';
+      }
+      f.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+      f.setAttribute('allowfullscreen', '');
+      viewport.appendChild(f);
+      liveCard.classList.add('tg-playing');
+      tgSoundOn = !!withSound;
+      liveCard.classList.toggle('tg-muted', !withSound);
+      tgBtn.textContent = 'Stop Tailgate';
+      var who = tgPlay.by ? ('Tailgate started by ' + tgPlay.by + '.') : 'Tailgate Party is playing.';
+      if (!withSound) who += ' Tap for sound.';
+      setStatus(who);
+    }
+
     function applyTailgate(st) {
       const ru = !!(st && st.mode === 'tailgate' && st.source !== 'twitch' && typeof st.embedId === 'string' && TG_EMBED_RE.test(st.embedId));
       const tw = !ru && !!(st && st.mode === 'tailgate' && st.source === 'twitch');
@@ -852,46 +936,70 @@
       if (!liveCard.classList.contains('tg-playing')) tgLinkA.href = tw ? TW_URL : 'https://rumble.com/c/nickjfuentes';
       liveCard.classList.toggle('tailgate', on && !amLive);
       liveTitle.textContent = on ? 'Tailgate Party' : 'Broadcast';
-      if (on && !amLive && !liveCard.classList.contains('tg-playing')) {
-        placeholderEl.textContent = tw ? TW_CHANNEL + ' on Twitch.' : 'Nick Fuentes is live on Rumble.';
-        setStatus('Press Tailgate Party to watch.');
-      } else if (!on) {
+      if (!on) {
         placeholderEl.innerHTML = PLACEHOLDER_NORMAL;
         if (!amLive) setStatus('Ready when you are.');
-      }
-    }
-    tgBtn.addEventListener('click', () => {
-      if (tg.mode !== 'tailgate') return;
-      if (tg.source === 'twitch') { // CHG-156
-        tgStop();
-        const f = document.createElement('iframe');
-        f.className = 'tg-frame';
-        f.src = twitchSrc(location.hostname);
-        f.title = TW_CHANNEL + ' on Twitch';
-        f.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
-        f.setAttribute('allowfullscreen', '');
-        viewport.appendChild(f);
-        tgLinkA.href = TW_URL;
-        liveCard.classList.add('tg-playing');
-        setStatus('Tailgate Party on Twitch.');
         return;
       }
-      if (!TG_EMBED_RE.test(tg.embedId || '')) return;
-      tgStop();
-      const f = document.createElement('iframe');
-      f.className = 'tg-frame';
-      f.src = 'https://rumble.com/embed/' + encodeURIComponent(tg.embedId) + '/?autoplay=2';
-      f.title = 'Nick Fuentes live on Rumble';
-      f.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
-      f.setAttribute('allowfullscreen', '');
-      f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
-      viewport.appendChild(f);
-      tgLinkA.href = 'https://rumble.com/embed/' + encodeURIComponent(tg.embedId) + '/';
-      liveCard.classList.add('tg-playing');
-      setStatus('Tailgate Party on Rumble.');
+      if (amLive) return;
+      // Mode on: sync player to site-wide playing
+      applyTailgatePlay(tgPlay);
+    }
+
+    function applyTailgatePlay(st) {
+      if (!st || typeof st !== 'object') return;
+      if (typeof st.playing !== 'boolean') return;
+      tgPlay = { playing: !!st.playing, by: st.by || null, since: st.since || null };
+      if (st.notice) tgShowNotice(String(st.notice));
+      if (tg.mode !== 'tailgate' || amLive) {
+        if (!tgPlay.playing) tgStop();
+        return;
+      }
+      if (!tgPlay.playing) {
+        tgStop();
+        placeholderEl.textContent = tg.source === 'twitch' ? (TW_CHANNEL + ' on Twitch.') : 'Nick Fuentes is live on Rumble.';
+        setStatus('Press Tailgate Party to watch.');
+        tgBtn.textContent = 'Tailgate Party';
+        return;
+      }
+      // Site playing: auto-insert muted unless this tab already unmuted
+      if (!liveCard.classList.contains('tg-playing')) {
+        tgInsertFrame(false);
+      } else {
+        liveCard.classList.toggle('tg-muted', !tgSoundOn);
+        tgBtn.textContent = 'Stop Tailgate';
+        var who = tgPlay.by ? ('Tailgate started by ' + tgPlay.by + '.') : 'Tailgate Party is playing.';
+        if (!tgSoundOn) who += ' Tap for sound.';
+        setStatus(who);
+      }
+    }
+
+    tgBtn.addEventListener('click', () => {
+      if (tg.mode !== 'tailgate') return;
+      if (!window.guestName) return;
+      if (tgPlay.playing) {
+        // Stop for everyone
+        socket.emit('tailgate:play:set', { playing: false });
+        return;
+      }
+      // Start for everyone; this click is a gesture → local sound on
+      socket.emit('tailgate:play:set', { playing: true });
+      // Optimistic: insert with sound; server broadcast will confirm (or snap back via notice + state)
+      tgPlay = { playing: true, by: window.guestName, since: Date.now() };
+      tgInsertFrame(true);
     });
+
+    if (tgUnmute) {
+      tgUnmute.addEventListener('click', () => {
+        if (!tgPlay.playing || tg.mode !== 'tailgate' || amLive) return;
+        tgInsertFrame(true); // reload unmuted inside the gesture
+      });
+    }
+
     socket.on('tailgate:state', applyTailgate);
+    socket.on('tailgate:play', applyTailgatePlay);
     fetch('/api/tailgate', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(st => { if (st) applyTailgate(st); }).catch(() => {});
+
 
     function stopLocal() {
       if (localStream) localStream.getTracks().forEach(t => t.stop());
