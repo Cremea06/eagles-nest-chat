@@ -316,6 +316,37 @@
 
     #worldCard .live-head { margin-bottom: 8px; }
 
+    /* CHG-160: Chat On/Off slide switch (Off | gold-ring knob | On), same pattern as Shop CHG-148 Weather Radio.
+       Sits in #sideCol between Broadcast and Open World; hides/shows Milliway #chat for every joiner. */
+    #chatToggleCard { display: block; padding: 12px; position: static; }
+    #chatToggleCard .live-head { margin-bottom: 8px; }
+    #chatToggleCard .chat-switch-row { display: flex; align-items: center; justify-content: flex-start; }
+    .chat-switch { display: inline-flex; align-items: center; gap: 10px; padding: 4px 8px; border: 0; border-radius: 999px; background: none;
+      color: #e6ecf8; font: inherit; font-weight: 700; cursor: pointer; min-height: 40px; }
+    .chat-switch:focus-visible { outline: 3px solid #f4c430; outline-offset: 3px; }
+    .chat-sw-lbl { color: #a9b6d0; transition: color .2s ease; }
+    .chat-switch[aria-checked="false"] .chat-sw-off, .chat-switch[aria-checked="true"] .chat-sw-on { color: #f4f7ff; }
+    .chat-switch[aria-checked="true"] .chat-sw-on { color: #f4c430; }
+    .chat-track { position: relative; width: 64px; height: 30px; border-radius: 999px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.3);
+      transition: background-color .25s ease, border-color .25s ease; flex: none; }
+    .chat-knob { position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; box-sizing: border-box; border-radius: 50%;
+      border: 3px solid #f4c430; background: rgba(0,20,51,0.6); transition: transform .25s ease, background-color .25s ease, box-shadow .25s ease; }
+    .chat-switch[aria-checked="true"] .chat-track { background: rgba(244,196,48,0.25); border-color: #f4c430; }
+    .chat-switch[aria-checked="true"] .chat-knob { transform: translateX(34px); background: #f4c430; box-shadow: 0 0 8px rgba(244,196,48,0.7); }
+    .chat-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    @media (prefers-reduced-motion: reduce) { .chat-knob, .chat-track, .chat-sw-lbl { transition: none; } }
+    body.nest-on.chat-off #chat { display: none !important; }
+    body.nest-on.chat-off {
+      grid-template-columns: 1fr minmax(280px, 340px) 1fr;
+    }
+    body.nest-on.chat-off #sideCol { grid-column: 2; }
+    @media (max-width: 1100px) {
+      body.nest-on.chat-off {
+        grid-template-columns: 1fr minmax(280px, 920px) 1fr;
+      }
+      body.nest-on.chat-off #sideCol { grid-column: 2; position: static; }
+    }
+
     /* CHG-036 — Who's here presence card */
     #whoCard { display: block; padding: 12px; position: static; }
     #whoCard .live-head { margin-bottom: 6px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; } /* CHG-139: title left, My profile pill centred, count right */
@@ -709,6 +740,16 @@
     </div>
   </aside>
 
+  <!-- CHG-160: Chat On/Off (default On). Between Broadcast and Open World; every joiner. -->
+  <aside id="chatToggleCard" class="glass">
+    <div class="live-head">
+      <h3>Chat</h3>
+    </div>
+    <div class="chat-switch-row">
+      <button type="button" class="chat-switch" id="chat-power" role="switch" aria-checked="true" aria-label="Chat"><span class="chat-sw-lbl chat-sw-off" aria-hidden="true">Off</span><span class="chat-track" aria-hidden="true"><span class="chat-knob"></span></span><span class="chat-sw-lbl chat-sw-on" aria-hidden="true">On</span><span id="chat-power-label" class="chat-sr">On</span></button>
+    </div>
+  </aside>
+
   <aside id="worldCard" class="glass">
     <div class="live-head">
       <h3>Open World</h3>
@@ -1009,7 +1050,54 @@
       document.getElementById('login').style.display = 'none';
       document.getElementById('chat').style.display = 'flex';
       document.body.classList.add('nest-on');
+      if (typeof window.AFF_applyChatPower === 'function') window.AFF_applyChatPower();
     }
+
+    /* CHG-160: Chat On/Off. Default On. Per-visitor localStorage (aff-nest-chat = "on"|"off").
+       Hides/shows Milliway #chat; layout uses body.chat-off so #sideCol stays tidy. */
+    (function () {
+      var KEY = 'aff-nest-chat';
+      var power = document.getElementById('chat-power');
+      var plabel = document.getElementById('chat-power-label');
+      var chatEl = document.getElementById('chat');
+      var messages = document.getElementById('messages');
+      var input = document.getElementById('input');
+      if (!power || !plabel || !chatEl) return;
+
+      function readPref() {
+        try {
+          var v = localStorage.getItem(KEY);
+          if (v === 'off') return false;
+          if (v === 'on') return true;
+        } catch (e) {}
+        return true; // default On
+      }
+      function writePref(on) {
+        try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch (e) {}
+      }
+      function apply(on, opts) {
+        opts = opts || {};
+        power.setAttribute('aria-checked', on ? 'true' : 'false');
+        plabel.textContent = on ? 'On' : 'Off';
+        document.body.classList.toggle('chat-off', !on);
+        if (on) {
+          // nest-on CSS restores display:flex; clear any inline none from an older path
+          if (document.body.classList.contains('nest-on')) chatEl.style.display = 'flex';
+          if (opts.focus && input) {
+            try { input.focus({ preventScroll: true }); } catch (e) { try { input.focus(); } catch (e2) {} }
+          }
+          if (messages) messages.scrollTop = messages.scrollHeight;
+        }
+      }
+      window.AFF_applyChatPower = function () { apply(readPref(), {}); };
+
+      apply(readPref(), {});
+      power.addEventListener('click', function () {
+        var next = power.getAttribute('aria-checked') !== 'true';
+        writePref(next);
+        apply(next, { focus: next });
+      });
+    })();
 
     // CHG-128 — /?support=1 (Shop "Need to talk?"): strip it from the address bar right away and tell the
     // server once, with the first join only. Nothing is shown to the room; Neagle greets this guest publicly.

@@ -1,3 +1,13 @@
+# CHG-160: Chat On/Off slide switch between Broadcast and Open World
+
+Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `6c872bf` (CHG-156).
+
+| File | Change |
+|---|---|
+| `public/index.html` | New `#chatToggleCard` in `#sideCol` between Broadcast (`#liveCard`) and Open World (`#worldCard`): a Chat Off \| gold-ring knob \| On slide switch (same pattern as Shop CHG-148 Weather Radio). Default On. Every joiner (guest and member) can use it after join. Hides/shows Milliway `#chat` (messages + input) via `body.chat-off`; desktop grid collapses so `#sideCol` stays centered with no empty chat column; mobile stack unchanged. Preference in `localStorage` key `aff-nest-chat` (`on`/`off`). `role="switch"`, `aria-checked`, visible Off/On labels, focus ring; Space/Enter activate via the button. Turning On restores messages scroll-to-bottom and focuses `#input`. `prefers-reduced-motion` disables knob motion. No server change; `/login` and `/auth` untouched. |
+
+Deploy: `git pull` in the chat app folder. Static-only (`public/index.html`); Express serves it from disk, so a pm2 restart is not required for this change. Rollback: `git revert <hash>` (or restore `public/index.html` from `6c872bf`) and `git pull`.
+
 # CHG-156: Tailgate Party second source - zackrawrr on Twitch (manual only, never polled)
 
 Prepared 2026-11-01, committed locally, not pushed, not deployed. Base `957337e` (CHG-154).
