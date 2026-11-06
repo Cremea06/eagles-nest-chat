@@ -403,6 +403,28 @@
       margin: 0 0 10px;
     }
 
+    /* CHG-164: Build your own Milliway — below Open World, visible to guests and members. */
+    #buildCard { display: block; padding: 12px; position: static; }
+    #buildCard .live-head { margin-bottom: 8px; }
+    #buildCard .world-blurb { font-size: 0.8rem; line-height: 1.4; color: rgba(240, 244, 248, 0.78); margin: 0 0 8px; }
+    #buildCard #buildVersion { font-size: 0.75rem; color: #a0aec0; margin: 0 0 10px; min-height: 1.1em; }
+    #buildCard .build-how {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #f4c430;
+      text-decoration: none;
+    }
+    #buildCard .build-how:hover { text-decoration: underline; }
+    #buildCard .build-how:focus-visible { outline: 3px solid #f4c430; outline-offset: 2px; border-radius: 4px; }
+    #buildCard a.btn-live {
+      display: block;
+      text-align: center;
+      text-decoration: none;
+      box-sizing: border-box;
+    }
+
     .live-head {
       display: flex;
       align-items: center;
@@ -801,6 +823,19 @@
     <div class="live-status" id="worldStatus">Registered members only.</div>
     <div class="live-actions">
       <button class="btn-live" id="enterWorldBtn" type="button">Enter</button>
+    </div>
+  </aside>
+
+  <!-- CHG-164: Build your own Milliway (guests + members). Version from GET /api/repo-version. -->
+  <aside id="buildCard" class="glass">
+    <div class="live-head">
+      <h3>Build your own Milliway</h3>
+    </div>
+    <p class="world-blurb">Free, open-source chatroom. Run one for your business, club or hobby.</p>
+    <div class="live-status" id="buildVersion" aria-live="polite"></div>
+    <div class="live-actions">
+      <a class="btn-live" id="buildGithub" href="https://github.com/Cremea06/eagles-nest-chat" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+      <a class="build-how" id="buildHow" href="https://github.com/Cremea06/eagles-nest-chat#run-your-own" target="_blank" rel="noopener noreferrer">How to set it up</a>
     </div>
   </aside>
   </div>
@@ -1866,6 +1901,28 @@
       });
       socket.on('clips:removed-mine', function (d) { setStatus('Removed your stream info from ' + ((d && d.count) || 0) + ' clip(s).'); });
     })();
+
+    // CHG-164: Build your own Milliway — version line from /api/repo-version (textContent only).
+    (function loadBuildCard() {
+      const verEl = document.getElementById('buildVersion');
+      if (!verEl) return;
+      function friendlyDate(iso) {
+        try {
+          const d = new Date(iso);
+          if (Number.isNaN(d.getTime())) return null;
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        } catch (e) { return null; }
+      }
+      fetch('/api/repo-version', { credentials: 'same-origin' })
+        .then((r) => (r && r.ok ? r.json() : null))
+        .then((j) => {
+          if (!j || !j.available || typeof j.sha !== 'string') return;
+          const when = friendlyDate(j.date);
+          verEl.textContent = when ? ('Latest: ' + j.sha + ' · ' + when) : ('Latest: ' + j.sha);
+        })
+        .catch(() => {});
+    })();
+
   </script>
 </body>
 </html>

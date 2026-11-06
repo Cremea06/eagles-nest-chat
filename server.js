@@ -18,6 +18,7 @@ const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
 const { createChatPause } = require('./lib/chatPause'); // CHG-162
 const { createTailgatePlay } = require('./lib/tailgatePlay'); // CHG-163
+const { createRepoVersion } = require('./lib/repoVersion'); // CHG-164
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
 const { profileRoute } = require('./lib/profile'); // CHG-115
 const support = require('./lib/support'); // CHG-128
@@ -92,6 +93,11 @@ app.all('/api/wx', require('./lib/wx').wxRoute());
 // Override persisted in tailgate.json (gitignored). Auto mode polls Rumble every 2 min only inside TAILGATE_WINDOW (default Mon-Fri 21:00-22:00 America/New_York) plus live carryover (TAILGATE_POLL=0 disables polling).
 const tailgateState = tailgate.createTailgateState({ file: path.join(__dirname, 'tailgate.json') });
 app.all('/api/tailgate', tailgate.tailgateRoute(tailgateState));
+
+// CHG-164: GET /api/repo-version -> {available, sha?, date?, url?} for the Build-your-own card (GitHub main tip, 1 h cache, 30/min).
+const repoVersion = createRepoVersion();
+app.all('/api/repo-version', (req, res) => repoVersion.handler(req, res));
+// Lazy fetch on first GET (warm() also available). Never block listen.
 tailgateState.onChange((st) => {
   io.emit('tailgate:state', st);
   // CHG-163: leaving Tailgate mode drops site-wide playing

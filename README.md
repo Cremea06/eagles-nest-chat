@@ -19,6 +19,23 @@ npm install
 npm start
 ```
 
+## Run your own
+
+Want a Milliway-style chatroom for your business, club, or hobby? This repo is MIT-licensed and public.
+
+**Prerequisites:** Node.js 20 LTS (18+ may work; this tree is developed on Node 20). Optional: [pm2](https://pm2.keymetrics.io/) for process restarts.
+
+```bash
+git clone https://github.com/Cremea06/eagles-nest-chat.git
+cd eagles-nest-chat
+cp .env.example .env   # fill only what you need; never commit .env
+npm install
+npm start              # listens on port 3000 (or NEST_PORT)
+# optional: pm2 start server.js --name "my-chat"
+```
+
+Put a reverse proxy (nginx, Caddy, etc.) in front for HTTPS and WebSockets — that part is up to you. Features that need keys (mail codes, Safe Browsing, weather, Tailgate admin POST, Nest World tokens) stay off until you set the matching `.env` values; basic guest chat works without them.
+
 ## last5.txt (public room tail)
 
 `https://chat.afirstflag.com/last5.txt` is **world-readable on purpose**. It holds only

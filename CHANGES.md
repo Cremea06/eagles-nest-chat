@@ -1,3 +1,19 @@
+# CHG-164: Build your own Milliway card + repo-version endpoint
+
+Prepared 2026-11-06, committed locally, not pushed, not deployed. Base `3ef11c9` (CHG-163).
+
+| File | Change |
+|---|---|
+| `lib/repoVersion.js` (new) | GET helper: unauthenticated GitHub `commits/main`, 1 h memory cache, timeout, User-Agent. Returns `{available, sha?, date?, url?}` (short sha). Failure keeps last good or `{available:false}`. First GET triggers fetch (lazy); `warm()` available but not called at boot. |
+| `server.js` | `GET /api/repo-version` (30/min per client, same rateKey as Tailgate GET). Lazy on first GET; never blocks listen. |
+| `public/index.html` | New `#buildCard` below Open World (guests + members): title, blurb, version line, View on GitHub, How to set it up. Version via `textContent` only. |
+| `test/repo-version.test.js` (new), `package.json` | Cache, failure fallback, shape, rate limit. |
+| `.env.example` | Documented missing env vars already read by server/lib (`TRUST_PROXY`, `WORLD_TOKEN_SECRET`, Safe Browsing, weatherUSA, etc.). |
+| `README.md` | New **Run your own** section (clone → `.env` → `npm install` → start; reverse proxy/HTTPS up to you). |
+| `LICENSE` | Already present (MIT, Cremea06 / afirstflag.com) — unchanged. |
+
+No releases tagged on the repo; card uses latest `main` commit. Deploy: `git pull` then **`pm2 restart "Eagles Nest"`**. Rollback: `git revert <hash>` + restart.
+
 # CHG-163: site-wide Tailgate playing (anyone starts; muted join + Tap for sound)
 
 Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `7bb9b64` (CHG-162).
