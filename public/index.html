@@ -316,8 +316,8 @@
 
     #worldCard .live-head { margin-bottom: 8px; }
 
-    /* CHG-160/161: Chat On/Off slide switch (Off | gold-ring knob | On), same pattern as Shop CHG-148 Weather Radio.
-       Sits in #sideCol between Broadcast and Open World. CHG-161: Off pauses (buffers) incoming lines; On flushes. */
+    /* CHG-160/162: Chat On/Off slide switch (Off | gold-ring knob | On), same pattern as Shop CHG-148 Weather Radio.
+       Sits in #sideCol between Broadcast and Open World. CHG-162: site-wide pause via chat:pause socket. */
     #chatToggleCard { display: block; padding: 12px; position: static; }
     #chatToggleCard .live-head { margin-bottom: 8px; }
     #chatToggleCard .chat-switch-row { display: flex; align-items: center; justify-content: flex-start; }
@@ -351,6 +351,15 @@
       text-align: center;
     }
     body.chat-paused #chatPauseBar { display: block; }
+    #chatPauseNotice {
+      display: none;
+      margin-top: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #a9b6d0;
+      min-height: 1.1em;
+    }
+    #chatPauseNotice.show { display: block; }
 
     /* CHG-036 — Who's here presence card */
     #whoCard { display: block; padding: 12px; position: static; }
@@ -746,7 +755,7 @@
     </div>
   </aside>
 
-  <!-- CHG-160/161: Chat On/Off (default On). Between Broadcast and Open World; every joiner. Off = pause. -->
+  <!-- CHG-160/162: Chat On/Off (default On). Site-wide pause (CHG-162). Between Broadcast and Open World. -->
   <aside id="chatToggleCard" class="glass">
     <div class="live-head">
       <h3>Chat</h3>
@@ -754,6 +763,7 @@
     <div class="chat-switch-row">
       <button type="button" class="chat-switch" id="chat-power" role="switch" aria-checked="true" aria-label="Chat"><span class="chat-sw-lbl chat-sw-off" aria-hidden="true">Off</span><span class="chat-track" aria-hidden="true"><span class="chat-knob"></span></span><span class="chat-sw-lbl chat-sw-on" aria-hidden="true">On</span><span id="chat-power-label" class="chat-sr">On</span></button>
     </div>
+    <div id="chatPauseNotice" role="status" aria-live="polite"></div>
   </aside>
 
   <aside id="worldCard" class="glass">
@@ -1059,36 +1069,25 @@
       if (typeof window.AFF_applyChatPower === 'function') window.AFF_applyChatPower();
     }
 
-    /* CHG-161: Chat On/Off. Default On. localStorage aff-nest-chat ("on"|"off").
-       Off = pause: #chat stays visible; others' chat/system/clip lines buffer (cap 500);
-       own chat lines still render. On = flush buffer in order via the normal render path.
-       Cold start with stored Off: welcome/join lines from the server render, then pause arms. */
+    /* CHG-162: site-wide Chat On/Off. Server state via socket 'chat:pause' / 'chat:pause:set'.
+       Off = pause (others' lines buffer, cap 500); On = flush. No localStorage. Bar names who paused. */
     (function () {
-      var KEY = 'aff-nest-chat';
       var CAP = 500;
       var power = document.getElementById('chat-power');
       var plabel = document.getElementById('chat-power-label');
       var bar = document.getElementById('chatPauseBar');
+      var noticeEl = document.getElementById('chatPauseNotice');
       var messagesEl = document.getElementById('messages');
       var inputEl = document.getElementById('input');
       if (!power || !plabel || !bar || !messagesEl) return;
 
       var paused = false;
+      var pausedBy = null;
       var coldStart = true;
       var buf = [];
       var dropped = 0;
-
-      function readPref() {
-        try {
-          var v = localStorage.getItem(KEY);
-          if (v === 'off') return false;
-          if (v === 'on') return true;
-        } catch (e) {}
-        return true;
-      }
-      function writePref(on) {
-        try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch (e) {}
-      }
+      var noticeTimer = null;
+      var serverKnown = false; // true after first chat:pause from the server
 
       function baseChatName(u) {
         u = String(u || '');
@@ -1104,17 +1103,33 @@
 
       function updateBar() {
         var held = buf.length;
+        var who = pausedBy ? (' by ' + pausedBy) : '';
         var text;
-        if (held === 0 && dropped === 0) text = 'Chat paused';
-        else if (dropped > 0) text = 'Chat paused · ' + CAP + '+ new';
-        else text = 'Chat paused · ' + held + ' new';
+        if (!paused) { bar.textContent = 'Chat paused'; return; }
+        if (held === 0 && dropped === 0) text = 'Chat paused' + who;
+        else if (dropped > 0) text = 'Chat paused' + who + ' · ' + CAP + '+ new';
+        else text = 'Chat paused' + who + ' · ' + held + ' new';
         bar.textContent = text;
+      }
+
+      function showNotice(msg) {
+        if (!noticeEl) return;
+        clearTimeout(noticeTimer);
+        noticeEl.textContent = msg || '';
+        if (msg) {
+          noticeEl.classList.add('show');
+          noticeTimer = setTimeout(function () {
+            noticeEl.textContent = '';
+            noticeEl.classList.remove('show');
+          }, 3200);
+        } else {
+          noticeEl.classList.remove('show');
+        }
       }
 
       function renderChatMessage(data) {
         var div = document.createElement('div');
         div.className = 'msg';
-        // CHG-048 — names and messages (people and Neagle) render as text, never HTML
         var nameEl = document.createElement('span');
         nameEl.className = data.username === 'Neagle' ? 'neagle' : 'username';
         nameEl.textContent = data.username + ':';
@@ -1160,12 +1175,15 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
 
-      function apply(on, opts) {
+      function applyFromServer(state, opts) {
         opts = opts || {};
+        serverKnown = true;
+        var on = !(state && state.paused);
         power.setAttribute('aria-checked', on ? 'true' : 'false');
         plabel.textContent = on ? 'On' : 'Off';
         var wasPaused = paused;
         paused = !on;
+        pausedBy = paused && state && state.by ? String(state.by) : null;
         document.body.classList.toggle('chat-paused', paused);
         if (on) {
           if (wasPaused) flush();
@@ -1176,34 +1194,50 @@
           messagesEl.scrollTop = messagesEl.scrollHeight;
         } else {
           updateBar();
+          if (wasPaused === false && !coldStart) {
+            // freshly paused (not a late-join sync during cold start)
+          }
         }
+        if (state && state.notice) showNotice(String(state.notice));
       }
 
-      window.AFF_applyChatPower = function () { apply(readPref(), {}); };
+      window.AFF_applyChatPower = function () {
+        // Keep switch in sync with last known server state (default On until the first chat:pause).
+        applyFromServer({ paused: paused, by: pausedBy }, {});
+      };
       window.AFF_chatHoldIncoming = function (kind, data) {
-        if (kind === 'chat' && isOwnChat(data)) { renderChatMessage(data); return true; } // handled (do not render again)
+        if (kind === 'chat' && isOwnChat(data)) { renderChatMessage(data); return true; }
         if (shouldHold()) { enqueue(kind, data); return true; }
         return false;
       };
       window.AFF_renderChatMessage = renderChatMessage;
       window.AFF_renderSystemMessage = renderSystem;
       window.AFF_chatMarkJoined = function () {
-        if (!readPref()) {
-          // Settle so the server's welcome system line (right after joined) renders before pause arms.
+        if (paused) {
           setTimeout(function () { coldStart = false; updateBar(); }, 250);
         } else {
           coldStart = false;
         }
       };
 
-      apply(readPref(), {});
-      if (readPref()) coldStart = false;
+      // Default On until the server says otherwise.
+      applyFromServer({ paused: false, by: null }, {});
+      coldStart = true;
 
       power.addEventListener('click', function () {
-        var next = power.getAttribute('aria-checked') !== 'true';
-        writePref(next);
-        if (!next) coldStart = false;
-        apply(next, { focus: next });
+        if (!window.guestName) return;
+        var nextOn = power.getAttribute('aria-checked') !== 'true';
+        // Optimistic UI; server broadcast (or deny snap-back) is authoritative.
+        if (!nextOn) coldStart = false;
+        applyFromServer({ paused: !nextOn, by: nextOn ? null : (pausedBy || window.guestName) }, { focus: nextOn });
+        socket.emit('chat:pause:set', { paused: !nextOn });
+      });
+
+      socket.on('chat:pause', function (state) {
+        if (!state || typeof state !== 'object') return;
+        if (typeof state.paused !== 'boolean') return;
+        if (!state.paused) coldStart = false;
+        applyFromServer(state, {});
       });
     })();
 

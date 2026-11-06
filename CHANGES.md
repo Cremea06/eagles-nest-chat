@@ -1,3 +1,16 @@
+# CHG-162: site-wide Chat On/Off (shared pause for every visitor)
+
+Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `1419c48` (CHG-161).
+
+| File | Change |
+|---|---|
+| `lib/chatPause.js` (new) | In-memory site pause state `{paused, by}`. Default On (`paused:false`). `trySet(boolean, displayName, rateKey)` enforces boolean-only input, a **5 s global cooldown** between successful flips, and **3 flips/min per socket** (`createRateLimiter`; global 5s cooldown still applies across everyone). `by` is the server `shownName` (trimmed, max 64) while paused. Restart resets to On (no data file). |
+| `server.js` | On join, `socket.emit('chat:pause', state)`. On `chat:pause:set` `{paused:boolean}` (or a bare boolean) from any joined guest/member: validate + rate-limit; success -> `io.emit('chat:pause', state)`; reject -> that socket only gets `chat:pause` with current state + `notice`. Message relay unchanged (pause is display-only). Neagle untouched. `/login` `/auth` untouched. |
+| `public/index.html` | Switch follows server `chat:pause` (localStorage `aff-nest-chat` removed). CHG-161 pause/buffer/flush kept; bar reads `Chat paused by <name> · N new`. Quiet per-client notice under the switch on deny. Late joiners while paused start paused after welcome settle. |
+| `test/chat-pause.test.js` (new), `package.json` | Unit tests for state, cooldown, per-socket limit, validation. |
+
+Deploy: `git pull` then **`pm2 restart "Eagles Nest"`** (server.js changed). Rollback: `git revert <hash>` + `pm2 restart "Eagles Nest"`.
+
 # CHG-161: Chat Off pauses incoming lines (buffer) instead of hiding #chat
 
 Prepared 2026-11-05, committed locally, not pushed, not deployed. Base `9f1f143` (CHG-160).

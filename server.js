@@ -16,6 +16,7 @@ const { createRepThrottle } = require('./lib/repThrottle'); // CHG-055
 const xhandle = require('./lib/xhandle'); // CHG-140
 const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
+const { createChatPause } = require('./lib/chatPause'); // CHG-162
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
 const { profileRoute } = require('./lib/profile'); // CHG-115
 const support = require('./lib/support'); // CHG-128
@@ -824,6 +825,14 @@ function editModeRefresh() {
   editModeWasOn = state.on;
 }
 
+// CHG-162: site-wide Chat pause (display-only). In memory; restart -> On. Broadcast as 'chat:pause'.
+const chatPause = createChatPause();
+function chatPausePayload() { return chatPause.state(); }
+function chatPauseRateKey(socket) {
+  // Per-socket key (3/min). Shared NATs still get the global 5s cooldown.
+  return 'sock:' + String(socket.id || 'unknown');
+}
+
 function handleRegistrationInput(socket, text) {
   const username = socket.username || 'Anonymous';
 
@@ -1336,8 +1345,28 @@ io.on('connection', (socket) => {
     socket.broadcast.emit(wasPresent ? 'presence:update' : 'presence:join', { user: pUser });
     presenceSync(socket);
     socket.emit('editmode:state', editModeState()); // CHG-058: EDIT MODE header for newcomers
+    socket.emit('chat:pause', chatPausePayload()); // CHG-162: site-wide Chat On/Off
     supportSessions.onJoin(socket, data, () => shownName(socket)); // CHG-128: silent; Neagle greets publicly
     keyGateState(socket); // CHG-141
+  });
+
+  // CHG-162: site-wide Chat pause. Any joiner may flip; boolean only; global 5s cooldown + 3/min per socket.
+  socket.on('chat:pause:set', (data) => {
+    if (!socket.username) return; // not joined yet
+    const want = data && typeof data === 'object' && typeof data.paused === 'boolean'
+      ? data.paused
+      : (typeof data === 'boolean' ? data : null);
+    const displayName = shownName(socket);
+    const r = chatPause.trySet(want, displayName, chatPauseRateKey(socket));
+    if (!r.ok) {
+      socket.emit('chat:pause', Object.assign({}, r.state, { notice: r.notice || 'Could not change Chat.' }));
+      return;
+    }
+    if (r.unchanged) {
+      socket.emit('chat:pause', r.state); // snap this client to the canonical state
+      return;
+    }
+    io.emit('chat:pause', r.state);
   });
 
   // CHG-141: the page's running keystroke COUNT (a number only). Credited at a human rate, capped per report.
