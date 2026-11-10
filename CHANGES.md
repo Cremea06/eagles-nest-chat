@@ -1,3 +1,18 @@
+# CHG-167: private whispers (`/tell`, `/r`)
+
+Prepared 2026-11-10, committed locally, not pushed, not deployed. Base `324c02f` (CHG-166).
+
+| File | Change |
+|---|---|
+| `lib/whisper.js` (new) | Name matching (state prefix, flagholder tag, Guest-User forms), message sanitize/length, parse `/tell`, payload/label, 10/min per-socket limiter, `WHISPER_MEMBERS_ONLY` helper. |
+| `server.js` | `/tell <name> <message>` and `/r <message>`. Delivered only to the two parties as a `whisper` event. No `io.emit`, `last5`, clip buffer, message-text logging, or Neagle. Guests allowed unless `WHISPER_MEMBERS_ONLY=1`. Muted senders refused. `/help` updated. |
+| `public/index.html` | Purple (`#FF80FF`) whisper lines; shown immediately even while Chat is paused. |
+| `tools/milliway-cli.js`, `test/milliway-cli.test.js` | Forwards `/tell` and `/r`; magenta ANSI on a TTY; `/help` updated. |
+| `test/whisper.test.js`, `test/whisper.server.test.js` (new), `package.json` | Unit tests plus a real local-server socket e2e. |
+| `.env.example`, `README.md` | Members-only switch; last5/privacy and terminal-client command notes. |
+
+Deploy: `git pull` then **`pm2 restart "Eagles Nest"`**. Rollback: `git revert <hash>` + restart.
+
 # CHG-164: Build your own Milliway card + repo-version endpoint
 
 Prepared 2026-11-06, committed locally, not pushed, not deployed. Base `3ef11c9` (CHG-163).

@@ -15,6 +15,10 @@ function formatLine(kind, data, time = new Date()) {
   const stamp = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
   let text;
   if (kind === 'chat') text = `${sanitize(data.username)}: ${sanitize(data.message)}`;
+  else if (kind === 'whisper') {
+    const tag = data && data.dir === 'out' ? `To ${sanitize(data.to)}:` : `${sanitize(data.from)} whispers:`;
+    text = `${tag} ${sanitize(data && data.message)}`;
+  }
   else if (kind === 'clip') text = `[clip] ${sanitize(data.clipper)}: ${sanitize(data.caption)} ${sanitize(data.url)}`;
   else text = sanitize(data);
   return `[${stamp}] ${text}`;
@@ -61,10 +65,15 @@ function parseArgs(args) {
     throw new Error('URL must be HTTP(S), without credentials, query or fragment.');
   return { url, help };
 }
+// Guest client forwards only these slash commands to the server; others stay blocked.
+function isForwardedCommand(text) {
+  const cmd = String(text || '').trim().split(/\s+/)[0].toLowerCase();
+  return cmd === '/who' || cmd === '/tell' || cmd === '/r';
+}
 function main(args = process.argv.slice(2)) {
   let options;
   try { options = parseArgs(args); } catch (e) { console.error(sanitize(e.message)); process.exitCode = 1; return; }
-  const help = '/help — commands; /who — online; /pause /resume — shared Chat switch; /quit — exit';
+  const help = '/help — commands; /who — online; /tell <name> <message> — whisper; /r <message> — reply; /pause /resume — shared Chat switch; /quit — exit';
   if (options.help) { console.log('Usage: node tools/milliway-cli.js [--url URL]\n' + help); return; }
   const { io } = require('socket.io-client');
   const input = process.stdin, output = process.stdout;
@@ -75,15 +84,18 @@ function main(args = process.argv.slice(2)) {
   let gated = false, count = 0, sent = 0, need = 100, limiter = createKeyLimiter();
   const socket = io(options.url, { autoConnect: false, reconnection: true,
     reconnectionDelay: 1000, reconnectionDelayMax: 10000, randomizationFactor: 0.5 });
-  function print(text, dim = false) {
+  function print(text, style = null) {
     if (tty) { readline.cursorTo(output, 0); readline.clearLine(output, 0); }
-    output.write((tty && dim ? '\x1b[2m' : '') + text + (tty && dim ? '\x1b[0m' : '') + '\n');
+    const pre = tty && style === 'dim' ? '\x1b[2m' : (tty && style === 'whisper' ? '\x1b[95m' : '');
+    const post = pre ? '\x1b[0m' : '';
+    output.write(pre + text + post + '\n');
     if (tty && !closing) rl.prompt(true); // preserve rl.line and cursor while asynchronous lines arrive
   }
-  function note(text) { print(formatLine('system', text), true); }
-  function render(items) { for (const it of items) print(formatLine(it.kind, it.data, it.time), it.kind !== 'chat'); }
+  function note(text) { print(formatLine('system', text), 'dim'); }
+  function styleOf(kind) { return kind === 'whisper' ? 'whisper' : (kind !== 'chat' ? 'dim' : null); }
+  function render(items) { for (const it of items) print(formatLine(it.kind, it.data, it.time), styleOf(it.kind)); }
   function receive(kind, data) {
-    const own = kind === 'chat' && data && data.username === username;
+    const own = kind === 'whisper' || (kind === 'chat' && data && data.username === username);
     const visible = pause.push(kind, data, own);
     render(visible);
     if (!visible.length) note(pause.status());
@@ -104,6 +116,7 @@ function main(args = process.argv.slice(2)) {
   });
   socket.on('joined', (data) => { username = String(data.username); joined = true; note('You are ' + username); });
   socket.on('chat message', (data) => { if (data && typeof data === 'object') receive('chat', data); });
+  socket.on('whisper', (data) => { if (data && typeof data === 'object') receive('whisper', data); });
   socket.on('system', (text) => receive('system', text));
   socket.on('clip:new', (data) => { if (data) receive('clip', data); });
   socket.on('chat:pause', (state) => {
@@ -130,7 +143,7 @@ function main(args = process.argv.slice(2)) {
     if (text === '/help') note(help);
     else if (!joined) note('Not connected; line not sent.');
     else if (text === '/pause' || text === '/resume') socket.emit('chat:pause:set', { paused: text === '/pause' });
-    else if (text.startsWith('/') && text !== '/who') note('Guest-only client: use /help for supported commands.');
+    else if (text.startsWith('/') && !isForwardedCommand(text)) note('Guest-only client: use /help for supported commands.');
     else if (text) { flushKeys(); socket.emit('chat message', text); }
     if (tty) rl.prompt(true);
   });
@@ -138,5 +151,5 @@ function main(args = process.argv.slice(2)) {
   rl.setPrompt('you> '); note(help); socket.connect();
   return { socket, close };
 }
-module.exports = { sanitize, formatLine, createPauseBuffer, createKeyLimiter, parseArgs, main };
+module.exports = { sanitize, formatLine, createPauseBuffer, createKeyLimiter, parseArgs, isForwardedCommand, main };
 if (require.main === module) main();

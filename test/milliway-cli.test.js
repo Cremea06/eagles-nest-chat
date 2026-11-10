@@ -1,7 +1,7 @@
 // CHG-165: offline pure helper checks; never connects to a room.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { sanitize, formatLine, createPauseBuffer, createKeyLimiter, parseArgs } = require('../tools/milliway-cli');
+const { sanitize, formatLine, createPauseBuffer, createKeyLimiter, parseArgs, isForwardedCommand } = require('../tools/milliway-cli');
 test('sanitize removes terminal sequences, control chars, bidi and line separators', () => {
   assert.equal(sanitize('\x1b[31mred\x1b[0m\n\r\t\x07\u202e\u2028\u2029'), 'red');
   assert.equal(sanitize('\x1b]52;c;evil\x07hello'), 'hello');
@@ -45,4 +45,25 @@ test('arguments support URL only, reject names, private credentials and invalid 
   assert.equal(parseArgs(['--url','http://127.0.0.1:3165']).url, 'http://127.0.0.1:3165');
   for (const args of [['--name','Andy'],['--url'],['--url','ftp://host'],['--url','https://user:pass@host']])
     assert.throws(() => parseArgs(args));
+});
+
+test('formatLine renders whisper To / whispers wording and sanitizes fields', () => {
+  const t = new Date(2026, 10, 10, 18, 5);
+  assert.equal(formatLine('whisper', { dir:'out', to:'\x1b[31mWV Alice', message:'hi\nthere' }, t), '[18:05] To WV Alice: hithere');
+  assert.equal(formatLine('whisper', { dir:'in', from:'Guest-User 1901', message:'hello' }, t), '[18:05] Guest-User 1901 whispers: hello');
+});
+test('pause prints whispers immediately, like own chat', () => {
+  const b = createPauseBuffer();
+  b.apply({ paused:true, by:'Guest' });
+  const vis = b.push('whisper', { dir:'in', from:'A', to:'B', message:'psst' }, true);
+  assert.equal(vis.length, 1);
+  assert.equal(vis[0].data.message, 'psst');
+  assert.equal(b.status(), 'Chat paused by Guest · 0 new');
+});
+test('client forwards /tell and /r, still blocks other guest-unsupported commands', () => {
+  assert.equal(isForwardedCommand('/tell WV Alice hello'), true);
+  assert.equal(isForwardedCommand('/r thanks'), true);
+  assert.equal(isForwardedCommand('/who'), true);
+  assert.equal(isForwardedCommand('/mute Alice'), false);
+  assert.equal(isForwardedCommand('/register'), false);
 });

@@ -17,6 +17,7 @@ const xhandle = require('./lib/xhandle'); // CHG-140
 const editMode = require('./lib/editMode'); // CHG-058
 const { createServerStats, createRateLimiter, serverStatsRoute } = require('./lib/serverStats'); // CHG-081
 const { createChatPause } = require('./lib/chatPause'); // CHG-162
+const whisper = require('./lib/whisper'); // CHG-167
 const { createTailgatePlay } = require('./lib/tailgatePlay'); // CHG-163
 const { createRepoVersion } = require('./lib/repoVersion'); // CHG-164
 const { safeLinkRoute } = require('./lib/safeLink'); // CHG-106
@@ -361,6 +362,8 @@ function handleCommand(socket, msg) {
       '/register            - Create a username and email',
       '/whoami              - Your account status',
       '/logout              - Sign out on every device',
+      '/tell <name> <message> - Private whisper to someone online',
+      '/r <message>         - Reply to the last whisper you received',
       '/mute <username>     - Mute a user (temporary)',
       '/nest                - Mint a Nest World pass (registered members)',
       '/rep <STATE>         - Show your US state before your name, e.g. /rep WV (members)',
@@ -510,6 +513,11 @@ function handleCommand(socket, msg) {
 
   if (command === '/delete') { // CHG-138
     handleDelete(socket).catch((err) => console.error('[account] delete request failed', err && (err.code || err.message)));
+    return true;
+  }
+
+  if (command === '/tell' || command === '/r') { // CHG-167
+    handleWhisperCommand(socket, command, args);
     return true;
   }
 
@@ -845,6 +853,87 @@ function chatPausePayload() { return chatPause.state(); }
 function chatPauseRateKey(socket) {
   // Per-socket key (3/min). Shared NATs still get the global 5s cooldown.
   return 'sock:' + String(socket.id || 'unknown');
+}
+
+// CHG-167: /tell and /r. Completely private: never io.emit, last5, clip buffer, message logs, or Neagle.
+const whisperLim = whisper.createWhisperLimiter();
+function whisperMembersOnly() { return whisper.membersOnlyFromEnv(process.env); }
+function whisperRateKey(socket) { return 'sock:' + String(socket.id || 'unknown'); }
+function onlinePeople() {
+  const byKey = new Map();
+  for (const [, s] of io.of('/').sockets) {
+    if (!s.username) continue;
+    const key = String(s.username).toLowerCase();
+    let p = byKey.get(key);
+    if (!p) {
+      p = { key, username: s.username, roomName: roomName(s), shownName: shownName(s), sockets: [] };
+      byKey.set(key, p);
+    }
+    p.sockets.push(s);
+  }
+  return [...byKey.values()];
+}
+function takeWhisperSlot(socket) {
+  const hit = whisperLim.hit(whisperRateKey(socket));
+  if (!hit.ok) {
+    socket.emit('system', 'Too many whispers. Try again in a minute.');
+    return false;
+  }
+  return true;
+}
+function deliverWhisper(socket, target, message) {
+  const from = shownName(socket);
+  const to = target.shownName;
+  socket.emit('whisper', whisper.payload('out', from, to, message));
+  const fromRef = { username: socket.username, shownName: from };
+  for (const s of target.sockets) {
+    s.emit('whisper', whisper.payload('in', from, to, message));
+    s.lastWhisperFrom = fromRef;
+  }
+}
+function handleWhisperCommand(socket, command, args) {
+  if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
+    socket.emit('system', 'You are currently muted.');
+    return;
+  }
+  if (whisperMembersOnly() && !isRegisteredAuthed(socket)) {
+    socket.emit('system', 'Only signed-in members can send whispers.');
+    return;
+  }
+  const people = onlinePeople();
+  let parsed;
+  if (command === '/r') {
+    if (!args.length) {
+      socket.emit('system', 'Usage: /r <message>');
+      return;
+    }
+    const last = socket.lastWhisperFrom;
+    if (!last || !last.username) {
+      socket.emit('system', 'No one has whispered you yet.');
+      return;
+    }
+    parsed = whisper.parseTell([last.username].concat(args), people, { selfKey: String(socket.username || '').toLowerCase() });
+  } else {
+    parsed = whisper.parseTell(args, people, { selfKey: String(socket.username || '').toLowerCase() });
+  }
+  if (!parsed.ok) {
+    if (parsed.reason === 'usage') {
+      socket.emit('system', command === '/r' ? 'Usage: /r <message>' : 'Usage: /tell <name> <message>');
+      return;
+    }
+    if (parsed.reason === 'too_long') {
+      socket.emit('system', 'That whisper is too long (max ' + whisper.MAX_LEN + ' characters).');
+      return;
+    }
+    if (!takeWhisperSlot(socket)) return;
+    if (parsed.reason === 'offline') socket.emit('system', 'User "' + parsed.name + '" is not online.');
+    else if (parsed.reason === 'ambiguous') socket.emit('system', 'That name matches more than one person. Use the full name as shown in /who.');
+    else if (parsed.reason === 'self') socket.emit('system', 'You cannot whisper yourself.');
+    else socket.emit('system', 'Usage: /tell <name> <message>');
+    return;
+  }
+  if (!takeWhisperSlot(socket)) return;
+  deliverWhisper(socket, parsed.person, parsed.message);
 }
 
 // CHG-163: site-wide Tailgate "playing" (iframe up). Cleared when admin mode leaves tailgate or on restart.

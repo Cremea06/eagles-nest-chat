@@ -43,10 +43,22 @@ the last 5 lines already broadcast to the public Milliway room (people and Neagl
 line as `username: text`, rewritten on every public message. It is a tail, not a log
 archive: nothing older than 5 lines is kept, it starts empty on every server restart, and it
 never contains commands, login/register/auth traffic, private-pane text, system notices,
-presence events, or Nest World (`/nest`) traffic.
+presence events, Nest World (`/nest`) traffic, or private whispers (`/tell`, `/r`).
 
 The file lives at `data/last5.txt` (gitignored; override with `LAST5_PATH`). The node
 process must be able to create and write that directory.
+
+## Whispers (`/tell`, `/r`) (CHG-167)
+
+`/tell <name> <message>` sends a private line only to that online person and back
+to you. The sender sees `To <name>:`, the recipient sees `<name> whispers:`, both
+in a purple/magenta whisper color. `/r <message>` replies to the last person who
+whispered you. Names match the room's display form, including a state prefix
+(`WV Andy` or `Andy`) and `Guest-User 1234`. Guests may whisper unless
+`WHISPER_MEMBERS_ONLY=1`. Whispers are not broadcast, not written to `last5.txt`,
+not clippable, not shown to admins, and not sent to Neagle. They are rate-limited
+(10 per minute per connection, 300 characters). A later reporting/moderation path
+for bad actors is not built yet.
 
 ## Server stats (public, read-only)
 
@@ -247,10 +259,12 @@ On macOS install Node 22/24 from https://nodejs.org/ first, then use the same
 clone/install/run commands (skip apt). Only `tools/` dependencies are installed;
 you do not need to run the server or create a `.env` file.
 
-Commands: `/help`, `/who`, `/quit`, `/pause`, `/resume`. The last two change the
-**shared room switch for everyone**, subject to the server's cooldown. While
-paused, others' messages/system lines/clips are held in memory (latest 500), your
-own messages appear immediately, and held lines flush on resume. Reconnection
+Commands: `/help`, `/who`, `/tell <name> <message>`, `/r <message>`, `/quit`, `/pause`, `/resume`.
+`/tell` and `/r` send a private whisper (shown in magenta on a color terminal).
+`/pause` and `/resume` change the **shared room switch for everyone**, subject to
+the server's cooldown. While paused, others' messages/system lines/clips are held
+in memory (latest 500), your own messages and whispers appear immediately, and
+held lines flush on resume. Reconnection
 uses backoff and rejoins with a new guest name; pending display lines reset.
 Lines typed while disconnected are not queued for later sending.
 
@@ -260,7 +274,9 @@ keypresses count at the same speed ceiling as the browser. Pasting a block or
 piping input does not bypass it. Commands remain available before unlocking.
 
 Privacy: guest-only, no login/cookie, no local chat log or credentials saved by
-the client. Messages go to the room and may be retained by its server, public
-last-five feed, or other participants. Your terminal's scrollback/session recorder
-may retain displayed text. Remote text is stripped of terminal control sequences.
-Do not put secrets into a public room.
+the client. Public messages go to the room and may be retained by its server, public
+last-five feed, or other participants. `/tell` and `/r` stay between you and the
+other person: the server does not write them to `last5.txt`, the clip buffer, or
+its log. Your terminal's scrollback/session recorder may still retain displayed
+text. Remote text is stripped of terminal control sequences. Do not put secrets
+into a public room.

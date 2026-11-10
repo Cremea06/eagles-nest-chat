@@ -217,6 +217,18 @@
       white-space: pre-wrap;
     }
 
+    /* CHG-167: WoW-like whisper color, readable on the dark room theme */
+    .msg.whisper {
+      background: rgba(255, 128, 255, 0.08);
+      border-color: rgba(255, 128, 255, 0.28);
+      color: #FF80FF;
+    }
+    .msg.whisper .whisper-label {
+      color: #FF80FF;
+      font-weight: 600;
+      margin-right: 0.35rem;
+    }
+
     #form {
       display: flex;
       gap: 0.75rem;
@@ -1288,6 +1300,20 @@
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
+      // CHG-167: private whisper line (sender or recipient). Text nodes only.
+      function renderWhisper(data) {
+        var div = document.createElement('div');
+        div.className = 'msg whisper';
+        var nameEl = document.createElement('span');
+        nameEl.className = 'whisper-label';
+        var from = data && data.from ? String(data.from) : '';
+        var to = data && data.to ? String(data.to) : '';
+        nameEl.textContent = data && data.dir === 'out' ? ('To ' + to + ':') : (from + ' whispers:');
+        div.appendChild(nameEl);
+        div.appendChild(document.createTextNode(' ' + (data && data.message != null ? String(data.message) : '')));
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
 
       function enqueue(kind, data) {
         if (buf.length >= CAP) {
@@ -1350,11 +1376,13 @@
       };
       window.AFF_chatHoldIncoming = function (kind, data) {
         if (kind === 'chat' && isOwnChat(data)) { renderChatMessage(data); return true; }
+        if (kind === 'whisper') { renderWhisper(data); return true; }
         if (shouldHold()) { enqueue(kind, data); return true; }
         return false;
       };
       window.AFF_renderChatMessage = renderChatMessage;
       window.AFF_renderSystemMessage = renderSystem;
+      window.AFF_renderWhisper = renderWhisper;
       window.AFF_chatMarkJoined = function () {
         if (paused) {
           setTimeout(function () { coldStart = false; updateBar(); }, 250);
@@ -1652,6 +1680,13 @@
     socket.on('chat message', (data) => {
       if (window.AFF_chatHoldIncoming && window.AFF_chatHoldIncoming('chat', data)) return;
       window.AFF_renderChatMessage(data);
+    });
+
+    // CHG-167: private /tell and /r; shown immediately even while Chat is paused.
+    socket.on('whisper', (data) => {
+      if (!data || typeof data !== 'object') return;
+      if (window.AFF_chatHoldIncoming && window.AFF_chatHoldIncoming('whisper', data)) return;
+      window.AFF_renderWhisper(data);
     });
 
     socket.on('system', (msg) => {
