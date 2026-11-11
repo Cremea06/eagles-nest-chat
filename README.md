@@ -63,7 +63,7 @@ for bad actors is not built yet.
 On the light theme (see Appearance below), whisper text uses a darker magenta
 `#A00078` so it stays readable; the dark theme keeps `#FF80FF`.
 
-## Appearance (CHG-170)
+## Appearance (CHG-170, CHG-172)
 
 Milliway defaults to the current dark theme. A small Light/Dark switch on the
 welcome card, in the chat header, and on the profile and Nest World door pages
@@ -71,6 +71,12 @@ lets a visitor pick a high-visibility light theme (navy, red, and gold on a
 light background). The choice is stored only in that browser (`aff-nest-theme`)
 and does not follow the system light/dark setting. Server behavior, including
 `/login` and `/auth`, is unchanged.
+
+The welcome-card switch is the same small pill as the one in the header, sitting
+in the top-right corner of the card and clear of the "Welcome to Milliway"
+title (including on a narrow phone). The label names the theme you switch to:
+it reads Light with a sun when the room is dark, and Dark with a moon when the
+room is light.
 
 ## Featured on Rumble (CHG-171)
 

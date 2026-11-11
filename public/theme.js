@@ -10,7 +10,11 @@
     btn.setAttribute('aria-checked', light ? 'true' : 'false');
     btn.setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme');
     var lab = btn.querySelector('.theme-toggle-label');
-    if (lab) lab.textContent = light ? 'Dark' : 'Light';
+    var alt = btn.querySelector('.theme-toggle-label-alt');
+    // CHG-172: when both Light and Dark labels are in the markup, CSS shows the
+    // right one before this runs (same idea as the sun/moon icons). A single-label
+    // button still gets its text from JS.
+    if (lab && !alt) lab.textContent = light ? 'Dark' : 'Light';
   }
   function apply(light, persist) {
     if (light) document.documentElement.setAttribute('data-theme', 'light');

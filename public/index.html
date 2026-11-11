@@ -92,7 +92,7 @@
       box-shadow: 0 0 0 3px rgba(196, 30, 58, 0.25);
     }
 
-    #login button {
+    #login button:not(.theme-toggle) {
       width: 100%;
       padding: 0.95rem;
       margin-top: 0.4rem;
@@ -106,12 +106,12 @@
       transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
 
-    #login button:hover {
+    #login button:not(.theme-toggle):hover {
       transform: translateY(-2px);
       box-shadow: 0 8px 24px rgba(196, 30, 58, 0.45);
     }
 
-    #login button:active {
+    #login button:not(.theme-toggle):active {
       transform: translateY(0);
     }
 
@@ -794,9 +794,46 @@
     }
     html[data-theme="light"] .theme-toggle .theme-icon-sun { display: none; }
     html[data-theme="light"] .theme-toggle .theme-icon-moon { display: block; }
+    /* CHG-172: visible label follows the theme before theme.js binds (same idea as the icons). */
+    .theme-toggle .theme-toggle-label-alt { display: none; }
+    html[data-theme="light"] .theme-toggle .theme-toggle-label { display: none; }
+    html[data-theme="light"] .theme-toggle .theme-toggle-label-alt { display: inline; }
 
-    #login { position: relative; }
-    #login .theme-toggle { position: absolute; top: 12px; right: 12px; }
+    /* CHG-172: welcome-card toggle must not inherit the full-width red Join Chat button.
+       Restate the pill at higher specificity and keep it in the top-right, clear of the title. */
+    #login { position: relative; padding-top: 3.5rem; }
+    #login .theme-toggle {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 2;
+      width: auto;
+      max-width: calc(100% - 24px);
+      margin: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      background: rgba(0, 0, 0, 0.22);
+      color: #f0f4f8;
+      font: 600 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      white-space: nowrap;
+      line-height: 1;
+    }
+    #login .theme-toggle:hover,
+    #login .theme-toggle:active {
+      transform: none;
+      box-shadow: none;
+    }
+    html[data-theme="light"] #login .theme-toggle {
+      border-color: rgba(0, 20, 51, 0.28);
+      background: rgba(0, 20, 51, 0.06);
+      color: #001433;
+    }
     #chat > h2 .theme-toggle { margin-left: auto; flex: none; }
 
     html[data-theme="light"] body {
@@ -1012,6 +1049,7 @@
       <svg class="theme-icon theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3" fill="currentColor"/><path fill="currentColor" d="M7.5 0h1v3h-1zM7.5 13h1v3h-1zM0 7.5h3v1H0zM13 7.5h3v1h-3zM2.05 2.05l.7-.7 2.13 2.12-.7.7zM11.12 11.12l.7-.7 2.13 2.12-.7.7zM2.05 13.95l2.12-2.13.7.7-2.12 2.13zM11.12 4.88l2.13-2.13.7.7-2.13 2.13z"/></svg>
       <svg class="theme-icon theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12.7 11.05A6 6 0 0 1 5.2 2.5 7.5 7.5 0 1 0 12.7 11.05z"/></svg>
       <span class="theme-toggle-label">Light</span>
+      <span class="theme-toggle-label-alt">Dark</span>
     </button>
     <h2>Welcome to Milliway</h2>
     <p>Enter a username to join the chat</p>
@@ -1029,6 +1067,7 @@
       <svg class="theme-icon theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3" fill="currentColor"/><path fill="currentColor" d="M7.5 0h1v3h-1zM7.5 13h1v3h-1zM0 7.5h3v1H0zM13 7.5h3v1h-3zM2.05 2.05l.7-.7 2.13 2.12-.7.7zM11.12 11.12l.7-.7 2.13 2.12-.7.7zM2.05 13.95l2.12-2.13.7.7-2.12 2.13zM11.12 4.88l2.13-2.13.7.7-2.13 2.13z"/></svg>
       <svg class="theme-icon theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12.7 11.05A6 6 0 0 1 5.2 2.5 7.5 7.5 0 1 0 12.7 11.05z"/></svg>
       <span class="theme-toggle-label">Light</span>
+      <span class="theme-toggle-label-alt">Dark</span>
     </button>
     </h2>
     <div id="messages"></div>

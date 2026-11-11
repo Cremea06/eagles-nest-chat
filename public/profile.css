@@ -56,6 +56,10 @@ html[data-theme="light"] .theme-toggle {
 }
 html[data-theme="light"] .theme-toggle .theme-icon-sun { display: none; }
 html[data-theme="light"] .theme-toggle .theme-icon-moon { display: block; }
+/* CHG-172: first-paint label matches the icon (Light vs Dark) before theme.js binds. */
+.theme-toggle .theme-toggle-label-alt { display: none; }
+html[data-theme="light"] .theme-toggle .theme-toggle-label { display: none; }
+html[data-theme="light"] .theme-toggle .theme-toggle-label-alt { display: inline; }
 html[data-theme="light"] body {
   background: linear-gradient(145deg, #e8eef6 0%, #f4f1e8 40%, #e8eef6 100%);
   background-attachment: fixed;
