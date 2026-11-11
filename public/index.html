@@ -447,6 +447,51 @@
       box-sizing: border-box;
     }
 
+    /* CHG-171: Featured on Rumble — official channels next to Broadcast / Tailgate. Avatars hotlinked from Rumble. */
+    #featuredCard { display: block; padding: 12px; position: static; }
+    #featuredCard .live-head { margin-bottom: 8px; }
+    #featuredList { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+    .featured-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 2px;
+      text-decoration: none;
+      color: inherit;
+      border-radius: 10px;
+      min-height: 44px;
+    }
+    .featured-item:hover { background: rgba(255, 255, 255, 0.06); }
+    .featured-item:focus-visible { outline: 3px solid #f4c430; outline-offset: 2px; }
+    .featured-avatar {
+      flex: 0 0 auto;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    .featured-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 0.85rem;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .featured-item .live-badge { margin-left: auto; flex: 0 0 auto; }
+    .featured-credit {
+      margin: 10px 2px 0;
+      font-size: 0.7rem;
+      line-height: 1.4;
+      color: #a0aec0;
+    }
+    .featured-credit a { color: #7cc4ff; text-decoration: none; }
+    .featured-credit a:hover { text-decoration: underline; }
+    .featured-credit a:focus-visible { outline: 3px solid #f4c430; outline-offset: 2px; border-radius: 4px; }
+
     .live-head {
       display: flex;
       align-items: center;
@@ -952,6 +997,13 @@
       border-color: rgba(0, 20, 51, 0.28);
       color: #001433;
     }
+
+    html[data-theme="light"] #featuredCard .featured-item:hover { background: rgba(0, 20, 51, 0.06); }
+    html[data-theme="light"] #featuredCard .featured-name { color: #001433; }
+    html[data-theme="light"] #featuredCard .featured-avatar { border-color: rgba(0, 20, 51, 0.2); background: #e8eef6; }
+    html[data-theme="light"] #featuredCard .featured-credit { color: #2a3d5c; }
+    html[data-theme="light"] #featuredCard .featured-credit a { color: #0b4f9c; }
+
   </style>
 </head>
 <body>
@@ -1069,7 +1121,46 @@
     </div>
   </aside>
 
-  <!-- CHG-160/162: Chat On/Off (default On). Site-wide pause (CHG-162). Between Broadcast and Open World. -->
+
+  <!-- CHG-171: Featured on Rumble (official channels). Avatars hotlinked from Rumble's CDN; credit below. Live badges from GET /api/featured. Links out; does not change the shared Tailgate. -->
+  <aside id="featuredCard" class="glass">
+    <div class="live-head">
+      <h3>Featured on Rumble</h3>
+    </div>
+    <ul id="featuredList" class="featured-list">
+      <li>
+        <a class="featured-item" data-featured-id="nickjfuentes" href="https://rumble.com/c/nickjfuentes" target="_blank" rel="noopener noreferrer">
+          <img class="featured-avatar" src="https://hugh.cdn.rumble.cloud/video/z8/R/B/H/c/RBHca.baa.1-nickjfuentes-rpb4lx.png" alt="" width="40" height="40" referrerpolicy="no-referrer">
+          <span class="featured-name">Nicholas J. Fuentes</span>
+          <span class="live-badge featured-live" hidden><span class="dot"></span> LIVE</span>
+        </a>
+      </li>
+      <li>
+        <a class="featured-item" data-featured-id="DrDisrespect" href="https://rumble.com/c/DrDisrespect" target="_blank" rel="noopener noreferrer">
+          <img class="featured-avatar" src="https://hugh.cdn.rumble.cloud/video/z8/R/Q/J/A/RQJAa.baa-DrDisrespect-sn5uzu.jpeg" alt="" width="40" height="40" referrerpolicy="no-referrer">
+          <span class="featured-name">Dr Disrespect</span>
+          <span class="live-badge featured-live" hidden><span class="dot"></span> LIVE</span>
+        </a>
+      </li>
+      <li>
+        <a class="featured-item" data-featured-id="russellbrand" href="https://rumble.com/c/russellbrand" target="_blank" rel="noopener noreferrer">
+          <img class="featured-avatar" src="https://hugh.cdn.rumble.cloud/video/z8/1/B/t/e/1Btea.baa.1-russellbrand-sy4bex.jpeg" alt="" width="40" height="40" referrerpolicy="no-referrer">
+          <span class="featured-name">Russell Brand</span>
+          <span class="live-badge featured-live" hidden><span class="dot"></span> LIVE</span>
+        </a>
+      </li>
+      <li>
+        <a class="featured-item" data-featured-id="Asmongold" href="https://rumble.com/c/Asmongold" target="_blank" rel="noopener noreferrer">
+          <img class="featured-avatar" src="https://hugh.cdn.rumble.cloud/video/z8/I/i/a/E/IiaEa.baa-Asmongold-tbnxti.jpeg" alt="" width="40" height="40" referrerpolicy="no-referrer">
+          <span class="featured-name">Asmongold</span>
+          <span class="live-badge featured-live" hidden><span class="dot"></span> LIVE</span>
+        </a>
+      </li>
+    </ul>
+    <p class="featured-credit">Images and channels courtesy of <a href="https://rumble.com/" target="_blank" rel="noopener noreferrer">Rumble</a></p>
+  </aside>
+
+    <!-- CHG-160/162: Chat On/Off (default On). Site-wide pause (CHG-162). Between Broadcast and Open World. -->
   <aside id="chatToggleCard" class="glass">
     <div class="live-head">
       <h3>Chat</h3>
@@ -1299,6 +1390,35 @@
     socket.on('tailgate:state', applyTailgate);
     socket.on('tailgate:play', applyTailgatePlay);
     fetch('/api/tailgate', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(st => { if (st) applyTailgate(st); }).catch(() => {});
+
+    // CHG-171: Featured on Rumble live badges. GET only; never POSTs /api/tailgate or changes the shared window.
+    // A live creator still links out to Rumble (watch page when known). Pinning into Tailgate stays an admin step.
+    function applyFeatured(data) {
+      if (!data || !Array.isArray(data.creators)) return;
+      data.creators.forEach(function (c) {
+        if (!c || !c.id) return;
+        var a = document.querySelector('#featuredList [data-featured-id="' + c.id.replace(/[^A-Za-z0-9_-]/g, '') + '"]');
+        if (!a) return;
+        var badge = a.querySelector('.featured-live');
+        if (badge) {
+          if (c.live) { badge.hidden = false; badge.classList.add('on'); }
+          else { badge.hidden = true; badge.classList.remove('on'); }
+        }
+        var href = c.live && typeof c.watchUrl === 'string' && /^https:\/\/rumble\.com\/v[A-Za-z0-9_-]+\.html$/.test(c.watchUrl)
+          ? c.watchUrl
+          : (typeof c.channel === 'string' && /^https:\/\/rumble\.com\/c\/[A-Za-z0-9_-]+$/.test(c.channel) ? c.channel : a.getAttribute('href'));
+        a.setAttribute('href', href);
+      });
+    }
+    function loadFeatured() {
+      fetch('/api/featured', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (st) {
+        if (st) applyFeatured(st);
+      }).catch(function () {});
+    }
+    loadFeatured();
+    setInterval(loadFeatured, 120000);
+
+
 
 
     function stopLocal() {

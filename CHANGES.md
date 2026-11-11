@@ -1,3 +1,17 @@
+# CHG-171: Featured on Rumble creators card
+
+Prepared 2026-11-10, committed locally, not pushed, not deployed. Base `2f25013` (CHG-170). A "Featured on Rumble" card in the Milliway side column (just under Broadcast / Tailgate) shows four official, verified Rumble channels Andy picked as Tailgate sources: Nicholas J. Fuentes, Dr Disrespect, Russell Brand, and Asmongold. Round avatars and names link out to each official channel (`target=_blank rel=noopener noreferrer`). The visible caption is "Images and channels courtesy of Rumble", linking to https://rumble.com/. Avatars are hotlinked from Rumble's official CDN (not copied into the repo) because that is the safer licensing approach; the CDN sends `Access-Control-Allow-Origin: *`. `GET /api/featured` returns the list plus a cached live flag. Live checks reuse Tailgate's `findLiveVideo` parser, are on-demand and cached 120 s (clamped 60–300 s via `FEATURED_CACHE_MS`), run one channel after another, and are skipped entirely when `FEATURED_POLL=0`. They do not call oEmbed and do not change the admin-controlled shared Tailgate (a live row still links out to Rumble; pinning a show into the window stays an admin `POST /api/tailgate`). A fresh Tailgate live result for nickjfuentes is reused so that channel is not fetched twice. `/login` and `/auth` are unchanged. The card follows the CHG-170 light and dark themes.
+
+| File | Change |
+|---|---|
+| `lib/featured.js` (new) | Creator list, cache, `FEATURED_POLL` / `FEATURED_CACHE_MS`, GET handler (30/min), sequential live checks, Tailgate reuse. |
+| `server.js` | `GET /api/featured`. Passes `tailgateState.get` for nickjfuentes reuse. No change to `/login`, `/auth`, or `POST /api/tailgate`. |
+| `public/index.html` | Featured card, credit, official links and avatars, live badges, light-theme styles, client poll of `/api/featured` every 120 s. |
+| `test/featured.test.js` (new), `package.json` | Official URLs, cache, poll-off, parser, Tailgate reuse, HTTP shape/rate limit, markup checks. |
+| `.env.example`, `README.md` | Poll/cache switches; Featured section and licensing note. |
+
+Deploy: `git pull` in `~/chat-app` then **`pm2 restart "Eagles Nest"`** (`server.js` changed). Rollback: `git revert <hash>` + restart.
+
 # CHG-170: light/dark theme toggle
 
 Prepared 2026-11-10, committed locally, not pushed, not deployed. Base `7d6c5ec` (CHG-167). Client-only: a small Light/Dark switch on the welcome card and in the Milliway header, and on the profile and Nest World door pages. The room stays on the current dark theme until a visitor clicks the switch. The choice is stored only in that browser (`localStorage` key `aff-nest-theme`, shared across those pages) and is applied before the first paint. The system `prefers-color-scheme` setting is ignored. Light mode keeps navy, red, and gold, with contrast-safe shades. Whisper lines stay `#FF80FF` in dark mode and use `#A00078` in light mode (same magenta family, WCAG AA on the light cards). `/login` and `/auth` behavior is unchanged. `server.js` is not changed, so a pm2 restart is not required after `git pull` (nginx will serve the new static files). The Nest World 3D courtyard mesh keeps its existing colors; only the door/page chrome follows the theme.

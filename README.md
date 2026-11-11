@@ -72,6 +72,28 @@ light background). The choice is stored only in that browser (`aff-nest-theme`)
 and does not follow the system light/dark setting. Server behavior, including
 `/login` and `/auth`, is unchanged.
 
+## Featured on Rumble (CHG-171)
+
+The Milliway side column has a **Featured on Rumble** card under Broadcast / Tailgate, with four official
+verified channels: Nicholas J. Fuentes, Dr Disrespect, Russell Brand, and Asmongold. Each row is a round
+avatar and name that opens that creator's Rumble channel in a new tab. A red **LIVE** badge appears when
+the server last saw that channel live.
+
+Images and channels are credited on the card: "Images and channels courtesy of Rumble", with a link to
+https://rumble.com/. Avatars are **hotlinked** from Rumble's official CDN (`hugh.cdn.rumble.cloud`), which
+allows cross-origin use (`Access-Control-Allow-Origin: *`). Milliway does not copy or host the image files.
+
+`GET /api/featured` (same origin, 30 requests a minute per visitor) returns the list plus cached live
+flags. Live checks reuse Tailgate's Rumble channel-page parser, but they do **not** call oEmbed and they
+do **not** change the shared Tailgate window (that stays admin-controlled via `POST /api/tailgate`).
+Checks run on demand when a visitor hits the endpoint and the cache is stale, at most once every 120
+seconds (set `FEATURED_CACHE_MS` between 60000 and 300000). Set `FEATURED_POLL=0` to keep the card and
+make no Rumble requests (every creator reports `live: false`). A fresh Tailgate "this channel is live"
+result for nickjfuentes is reused so that channel is not fetched twice.
+
+Clicking a live creator still goes out to Rumble. Pinning that show into the room's Tailgate window is
+an admin step (`POST /api/tailgate`), not something the card does on its own.
+
 ## Server stats (public, read-only)
 
 `https://chat.afirstflag.com/api/server-stats` gives the homepage Server row (Live-state Analysis drawer on

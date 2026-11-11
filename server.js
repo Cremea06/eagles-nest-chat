@@ -25,6 +25,7 @@ const { profileRoute } = require('./lib/profile'); // CHG-115
 const support = require('./lib/support'); // CHG-128
 const { memberCountRoute } = require('./lib/memberCount'); // CHG-132
 const tailgate = require('./lib/tailgate'); // CHG-133
+const featured = require('./lib/featured'); // CHG-171
 const clips = require('./lib/clips'); // CHG-134
 const accountDelete = require('./lib/accountDelete'); // CHG-138
 const keyGate = require('./lib/keystrokeGate'); // CHG-141
@@ -94,6 +95,14 @@ app.all('/api/wx', require('./lib/wx').wxRoute());
 // Override persisted in tailgate.json (gitignored). Auto mode polls Rumble every 2 min only inside TAILGATE_WINDOW (default Mon-Fri 21:00-22:00 America/New_York) plus live carryover (TAILGATE_POLL=0 disables polling).
 const tailgateState = tailgate.createTailgateState({ file: path.join(__dirname, 'tailgate.json') });
 app.all('/api/tailgate', tailgate.tailgateRoute(tailgateState));
+
+// CHG-171: GET /api/featured -> four official Rumble channels + cached live flags (no secrets).
+// FEATURED_POLL=0 disables outbound Rumble checks (the card still renders; live is always false).
+// Cache default 120 s (FEATURED_CACHE_MS, clamped 60–300 s). On-demand, stale-while-revalidate; 30/min per client.
+// Reuses a fresh Tailgate live result for nickjfuentes so that channel is not fetched twice. Does not POST or
+// change the admin-controlled Tailgate.
+const featuredApi = featured.createFeatured({ getTailgate: () => tailgateState.get() });
+app.all('/api/featured', featuredApi.handler);
 
 // CHG-164: GET /api/repo-version -> {available, sha?, date?, url?} for the Build-your-own card (GitHub main tip, 1 h cache, 30/min).
 const repoVersion = createRepoVersion();
