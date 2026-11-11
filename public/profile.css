@@ -33,3 +33,48 @@ h1 { font-size: 1.8rem; overflow-wrap: anywhere; margin-bottom: 1rem; }
 .xunv { color: #94a3b8; font-size: 0.9rem; cursor: help; }
 .xnote { margin-top: 0.25rem; color: #94a3b8; font-size: 0.78rem; }
 .xline[hidden], .xnote[hidden] { display: none; }
+
+/* CHG-170: theme toggle + light theme (tokens shared with index.html) */
+:root { color-scheme: dark; }
+html[data-theme="light"] { color-scheme: light; }
+.theme-toggle {
+  position: fixed; top: 16px; right: 16px; z-index: 20;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(0, 0, 0, 0.22); color: #f0f4f8;
+  font: 600 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: 0.04em; cursor: pointer; white-space: nowrap; line-height: 1;
+}
+.theme-toggle:focus-visible { outline: 3px solid #f4c430; outline-offset: 2px; }
+.theme-toggle .theme-icon { display: block; flex: none; }
+.theme-toggle .theme-icon-moon { display: none; }
+html[data-theme="light"] .theme-toggle {
+  border-color: rgba(0, 20, 51, 0.28);
+  background: rgba(255, 255, 255, 0.9);
+  color: #001433;
+}
+html[data-theme="light"] .theme-toggle .theme-icon-sun { display: none; }
+html[data-theme="light"] .theme-toggle .theme-icon-moon { display: block; }
+html[data-theme="light"] body {
+  background: linear-gradient(145deg, #e8eef6 0%, #f4f1e8 40%, #e8eef6 100%);
+  background-attachment: fixed;
+  color: #001433;
+}
+html[data-theme="light"] .glass {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(0, 20, 51, 0.16);
+  box-shadow: 0 8px 32px rgba(0, 20, 51, 0.12);
+}
+html[data-theme="light"] .kicker { color: #3d4a5c; }
+html[data-theme="light"] .tier {
+  background: rgba(244, 196, 48, 0.22);
+  border-color: #8A6400;
+  color: #7A5800;
+}
+html[data-theme="light"] .joined,
+html[data-theme="light"] .xline { color: #2a3d5c; }
+html[data-theme="light"] .back a,
+html[data-theme="light"] .xline a { color: #0b4f9c; }
+html[data-theme="light"] .xunv,
+html[data-theme="light"] .xnote { color: #3d4a5c; }

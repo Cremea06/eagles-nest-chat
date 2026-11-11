@@ -1,3 +1,17 @@
+# CHG-170: light/dark theme toggle
+
+Prepared 2026-11-10, committed locally, not pushed, not deployed. Base `7d6c5ec` (CHG-167). Client-only: a small Light/Dark switch on the welcome card and in the Milliway header, and on the profile and Nest World door pages. The room stays on the current dark theme until a visitor clicks the switch. The choice is stored only in that browser (`localStorage` key `aff-nest-theme`, shared across those pages) and is applied before the first paint. The system `prefers-color-scheme` setting is ignored. Light mode keeps navy, red, and gold, with contrast-safe shades. Whisper lines stay `#FF80FF` in dark mode and use `#A00078` in light mode (same magenta family, WCAG AA on the light cards). `/login` and `/auth` behavior is unchanged. `server.js` is not changed, so a pm2 restart is not required after `git pull` (nginx will serve the new static files). The Nest World 3D courtyard mesh keeps its existing colors; only the door/page chrome follows the theme.
+
+| File | Change |
+|---|---|
+| `public/theme.js` (new) | Reads/writes `aff-nest-theme`, sets `data-theme` on `<html>`, binds the switch. |
+| `public/index.html` | Boot script (before paint), toggle on the welcome card and in the chat header, `[data-theme=light]` CSS. |
+| `public/profile.html`, `public/profile.css` | Same switch and light theme; no inline script (existing profile tests). |
+| `public/world/index.html` | Same switch; light tokens on the door/page chrome. |
+| `README.md` | Appearance notes, including the light-mode whisper color. |
+
+Deploy: `git pull` in `~/chat-app`. **No pm2 restart.** Rollback: `git revert <hash>` (no restart).
+
 # CHG-167: private whispers (`/tell`, `/r`)
 
 Prepared 2026-11-10, committed locally, not pushed, not deployed. Base `324c02f` (CHG-166).

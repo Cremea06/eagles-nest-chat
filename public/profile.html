@@ -9,8 +9,14 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/profile.css" />
+  <script src="/theme.js"></script>
 </head>
 <body>
+    <button type="button" class="theme-toggle" data-theme-toggle role="switch" aria-checked="false" aria-pressed="false" aria-label="Switch to light theme">
+      <svg class="theme-icon theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3" fill="currentColor"/><path fill="currentColor" d="M7.5 0h1v3h-1zM7.5 13h1v3h-1zM0 7.5h3v1H0zM13 7.5h3v1h-3zM2.05 2.05l.7-.7 2.13 2.12-.7.7zM11.12 11.12l.7-.7 2.13 2.12-.7.7zM2.05 13.95l2.12-2.13.7.7-2.12 2.13zM11.12 4.88l2.13-2.13.7.7-2.13 2.13z"/></svg>
+      <svg class="theme-icon theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12.7 11.05A6 6 0 0 1 5.2 2.5 7.5 7.5 0 1 0 12.7 11.05z"/></svg>
+      <span class="theme-toggle-label">Light</span>
+    </button>
   <main id="card" class="glass" aria-live="polite">
     <p class="kicker">Milliway member</p>
     <h1 id="name">Loading…</h1>

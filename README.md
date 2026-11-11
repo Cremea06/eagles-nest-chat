@@ -60,6 +60,18 @@ not clippable, not shown to admins, and not sent to Neagle. They are rate-limite
 (10 per minute per connection, 300 characters). A later reporting/moderation path
 for bad actors is not built yet.
 
+On the light theme (see Appearance below), whisper text uses a darker magenta
+`#A00078` so it stays readable; the dark theme keeps `#FF80FF`.
+
+## Appearance (CHG-170)
+
+Milliway defaults to the current dark theme. A small Light/Dark switch on the
+welcome card, in the chat header, and on the profile and Nest World door pages
+lets a visitor pick a high-visibility light theme (navy, red, and gold on a
+light background). The choice is stored only in that browser (`aff-nest-theme`)
+and does not follow the system light/dark setting. Server behavior, including
+`/login` and `/auth`, is unchanged.
+
 ## Server stats (public, read-only)
 
 `https://chat.afirstflag.com/api/server-stats` gives the homepage Server row (Live-state Analysis drawer on
