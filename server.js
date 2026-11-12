@@ -30,10 +30,19 @@ const clips = require('./lib/clips'); // CHG-134
 const accountDelete = require('./lib/accountDelete'); // CHG-138
 const keyGate = require('./lib/keystrokeGate'); // CHG-141
 const { rateKey } = require('./lib/safeLink');
+const { createAudit } = require('./lib/adminAudit'); // CHG-173
+const { createAdminConsole, createMessageRate } = require('./lib/adminConsole'); // CHG-173
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// CHG-173: read-only /admin console. In-memory audit ring (last 200 admin-relevant events) and a message-rate counter
+// (timestamps only, never a line). The console itself is mounted further down (needs chat pause / presence).
+const adminAudit = createAudit();
+const adminMsgRate = createMessageRate();
+const adminStartedAt = Date.now();
+adminAudit.add('server_start', {});
 
 // CHG-003 Slice 1 — Nest World /nest mint (no world page yet; do not increment nestCount)
 let nestCount = process.env.NEST_SIMULATE_FULL === '1' ? 32 : 0;
@@ -110,6 +119,7 @@ app.all('/api/repo-version', (req, res) => repoVersion.handler(req, res));
 // Lazy fetch on first GET (warm() also available). Never block listen.
 tailgateState.onChange((st) => {
   io.emit('tailgate:state', st);
+  if (st) adminAudit.add('tailgate', { mode: st.mode, override: st.override, source: st.source, twitch: st.twitch, embedId: st.embedId, live: st.live }); // CHG-173
   // CHG-163: leaving Tailgate mode drops site-wide playing
   if (!st || st.mode !== 'tailgate') {
     const c = tailgatePlay.clear();
@@ -764,6 +774,7 @@ const editCodeOk = editMode.createCodeCheck(editMode.resolveCodeHash(process.env
 
 // CHG-134: every public room line gets a server id + time and goes into the clip buffer.
 function roomLine(username, message) {
+  adminMsgRate.note(username === 'Neagle' ? 'neagle' : 'human'); // CHG-173: a count only, never the line
   const l = clipBuffer.add(username, message);
   return { username, message, id: l.id, t: l.t };
 }
@@ -814,6 +825,7 @@ function handleEditFlow(socket, text, msg) {
     if (editCodeOk(text)) {
       socket.editMode = true;
       console.log('[editmode] on', socket.username);
+      adminAudit.add('edit_mode', { on: true, name: roomName(socket) }); // CHG-173
       neagleSay('code accepted');
       editModeRefresh();
     } else {
@@ -1399,6 +1411,31 @@ io.use((socket, next) => {
   next();
 });
 
+// CHG-173: GET /admin + GET /api/admin/{overview,audit}. Owner only (existing lib/username.js owner-email check via the
+// member cookie); everyone else gets the app's normal 404. Read-only: no POST/PUT/DELETE, nothing written. See lib/adminConsole.js.
+app.use(createAdminConsole({
+  dir: __dirname,
+  audit: adminAudit,
+  msgRate: adminMsgRate,
+  startedAt: adminStartedAt,
+  resolveUser: (cookieHeader) => readMember(cookieHeader).user || null,
+  isOwnerEmail: (email) => usernameRule.isOwnerAccountEmail(email),
+  sources: {
+    presence: () => Array.from(milliwayPresence.values()),
+    connected: () => io.of('/').sockets.size,
+    registered: () => registeredUsers.length,
+    broadcasting: () => liveBroadcasters.size,
+    editModeOn: () => editModeState().on,
+    chatPause: () => chatPause.state(),
+    tailgatePlay: () => tailgatePlay.state(),
+    tailgate: () => tailgateState.get(),
+    tailgateTokenSet: () => String(process.env.TAILGATE_TOKEN || '').length >= 16, // yes/no only; the token never leaves the server
+    tailgatePolling: () => process.env.TAILGATE_POLL !== '0',
+    featured: () => featuredApi.snapshot(), // cache only: does not start a Rumble check
+    whisperMembersOnly: () => whisperMembersOnly()
+  }
+}).router);
+
 io.on('connection', (socket) => {
   socket.emit('tailgate:state', tailgateState.get()); // CHG-133
   // CHG-134: clip session for this connection (dropped on disconnect)
@@ -1490,6 +1527,7 @@ io.on('connection', (socket) => {
       socket.emit('chat:pause', r.state); // snap this client to the canonical state
       return;
     }
+    adminAudit.add('chat_pause', { paused: r.state.paused, by: displayName }); // CHG-173
     io.emit('chat:pause', r.state);
   });
 
@@ -1512,6 +1550,7 @@ io.on('connection', (socket) => {
       socket.emit('tailgate:play', r.state);
       return;
     }
+    adminAudit.add('tailgate_play', { playing: r.state.playing, by: displayName }); // CHG-173
     io.emit('tailgate:play', r.state);
   });
 
@@ -1858,6 +1897,7 @@ io.on('connection', (socket) => {
     if (socket.editMode) {
       socket.editMode = false;
       console.log('[editmode] off (disconnect)', socket.username);
+      adminAudit.add('edit_mode', { on: false, name: roomName(socket) }); // CHG-173
       editModeRefresh();
     }
   });

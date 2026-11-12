@@ -100,6 +100,22 @@ result for nickjfuentes is reused so that channel is not fetched twice.
 Clicking a live creator still goes out to Rumble. Pinning that show into the room's Tailgate window is
 an admin step (`POST /api/tailgate`), not something the card does on its own.
 
+## Admin console (CHG-173, read-only)
+
+`/admin` is a private, read-only status page for the site owner. It shows who is in the room (members vs
+guests, public display names), messages per minute, the Chat pause state, server health (uptime, memory, Node
+version, running and on-disk git commit), the current Tailgate state, the cached Featured live flags, and an
+in-memory audit log of the last 200 admin-relevant events (Tailgate changes, Chat pause flips, edit mode,
+admin page views). It follows the Light / Dark theme like the rest of the site.
+
+Access reuses the existing owner check (`lib/username.js`, the owner-email SHA-256) through the same
+`nest_member` sign-in cookie the chat uses. There is no new password, token or setting. Anyone else (guest,
+other member, signed out, or remember-me off) gets the app's normal 404, so the page is not advertised. It is
+noindex, not linked from any page, and owner requests are limited to 120 a minute. It never shows chat
+lines, whispers, emails, addresses or the Tailgate token (only "configured: yes/no"). There is no write
+endpoint: `POST`, `PUT`, `PATCH` and `DELETE` are plain 404s. The files live in `admin/` (not `public/`, so the
+static server cannot hand them out).
+
 ## Server stats (public, read-only)
 
 `https://chat.afirstflag.com/api/server-stats` gives the homepage Server row (Live-state Analysis drawer on

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <title>Admin · Milliway</title>
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="stylesheet" href="/admin/admin.css" />
+  <script src="/theme.js"></script>
+</head>
+<body>
+  <button type="button" class="theme-toggle" data-theme-toggle role="switch" aria-checked="false" aria-pressed="false" aria-label="Switch to light theme">
+    <svg class="theme-icon theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3" fill="currentColor"/><path fill="currentColor" d="M7.5 0h1v3h-1zM7.5 13h1v3h-1zM0 7.5h3v1H0zM13 7.5h3v1h-3zM2.05 2.05l.7-.7 2.13 2.12-.7.7zM11.12 11.12l.7-.7 2.13 2.12-.7.7zM2.05 13.95l2.12-2.13.7.7-2.12 2.13zM11.12 4.88l2.13-2.13.7.7-2.13 2.13z"/></svg>
+    <svg class="theme-icon theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12.7 11.05A6 6 0 0 1 5.2 2.5 7.5 7.5 0 1 0 12.7 11.05z"/></svg>
+    <span class="theme-toggle-label">Light</span>
+    <span class="theme-toggle-label-alt">Dark</span>
+  </button>
+
+  <header class="top">
+    <div class="kicker">Milliway · read-only</div>
+    <h1>Admin console</h1>
+    <p class="sub"><span id="who">Owner</span> · <span id="status" role="status" aria-live="polite">Loading…</span></p>
+  </header>
+
+  <main class="grid">
+    <section class="glass card" aria-labelledby="h-room">
+      <h2 id="h-room">Live room</h2>
+      <div class="stats">
+        <div class="stat"><span class="num" id="r-members">–</span><span class="lbl">Members</span></div>
+        <div class="stat"><span class="num" id="r-guests">–</span><span class="lbl">Guests</span></div>
+        <div class="stat"><span class="num" id="r-mpm">–</span><span class="lbl">Msgs / min</span></div>
+        <div class="stat"><span class="num" id="r-m5">–</span><span class="lbl">Last 5 min</span></div>
+      </div>
+      <div class="spark" id="r-spark" aria-label="Messages per minute, last 15 minutes"></div>
+      <dl class="kv">
+        <dt>Connected sockets</dt><dd id="r-connected">–</dd>
+        <dt>Registered members</dt><dd id="r-registered">–</dd>
+        <dt>Chat</dt><dd id="r-pause">–</dd>
+        <dt>Tailgate playing</dt><dd id="r-play">–</dd>
+        <dt>Edit mode</dt><dd id="r-edit">–</dd>
+        <dt>Live broadcasters</dt><dd id="r-live">–</dd>
+        <dt>Whispers</dt><dd id="r-whisper">–</dd>
+      </dl>
+      <h3>Online now</h3>
+      <ul class="names" id="r-names"></ul>
+    </section>
+
+    <section class="glass card" aria-labelledby="h-server">
+      <h2 id="h-server">Server health</h2>
+      <dl class="kv">
+        <dt>Started</dt><dd id="s-started">–</dd>
+        <dt>Uptime</dt><dd id="s-uptime">–</dd>
+        <dt>Node</dt><dd id="s-node">–</dd>
+        <dt>Process memory</dt><dd id="s-mem">–</dd>
+        <dt>Heap</dt><dd id="s-heap">–</dd>
+        <dt>System memory</dt><dd id="s-sys">–</dd>
+        <dt>Load average</dt><dd id="s-load">–</dd>
+        <dt>Commit (running)</dt><dd id="s-commit">–</dd>
+        <dt>Commit (on disk)</dt><dd id="s-commit2">–</dd>
+      </dl>
+      <p class="note" id="s-restart" hidden>The code on disk is newer than the running process. A restart is needed to run it.</p>
+    </section>
+
+    <section class="glass card" aria-labelledby="h-tg">
+      <h2 id="h-tg">Tailgate</h2>
+      <dl class="kv">
+        <dt>Mode</dt><dd id="t-mode">–</dd>
+        <dt>Override</dt><dd id="t-override">–</dd>
+        <dt>Source</dt><dd id="t-source">–</dd>
+        <dt>Rumble embed</dt><dd id="t-embed">–</dd>
+        <dt>Rumble live (detector)</dt><dd id="t-live">–</dd>
+        <dt>Twitch</dt><dd id="t-twitch">–</dd>
+        <dt>Auto polling</dt><dd id="t-poll">–</dd>
+        <dt>Admin token</dt><dd id="t-token">–</dd>
+      </dl>
+      <p class="note">The token is never shown or sent to this page. Changes are still made with the existing helper.</p>
+    </section>
+
+    <section class="glass card" aria-labelledby="h-feat">
+      <h2 id="h-feat">Featured on Rumble</h2>
+      <ul class="feat" id="f-list"></ul>
+      <p class="note" id="f-note">–</p>
+    </section>
+
+    <section class="glass card wide" aria-labelledby="h-audit">
+      <h2 id="h-audit">Audit log</h2>
+      <p class="note" id="a-note">–</p>
+      <div class="tablewrap">
+        <table class="audit">
+          <thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
+          <tbody id="a-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/admin/admin.js"></script>
+</body>
+</html>
