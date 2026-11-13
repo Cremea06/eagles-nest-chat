@@ -78,9 +78,9 @@ title (including on a narrow phone). The label names the theme you switch to:
 it reads Light with a sun when the room is dark, and Dark with a moon when the
 room is light.
 
-## Featured on Rumble (CHG-171)
+## Featured (CHG-171, title CHG-174)
 
-The Milliway side column has a **Featured on Rumble** card under Broadcast / Tailgate, with four official
+The Milliway side column has a **Featured** card under Broadcast / Tailgate, with four official
 verified channels: Nicholas J. Fuentes, Dr Disrespect, Russell Brand, and Asmongold. Each row is a round
 avatar and name that opens that creator's Rumble channel in a new tab. A red **LIVE** badge appears when
 the server last saw that channel live.

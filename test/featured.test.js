@@ -185,7 +185,7 @@ test('cacheMs is clamped to 60–300 s; FEATURED_POLL=0 and FEATURED_CACHE_MS re
 test('index.html has the Featured card, credit, official links, and no Tailgate POST', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   assert.match(html, /id="featuredCard"/);
-  assert.match(html, /Featured on Rumble/);
+  assert.match(html, /<h3>Featured<\/h3>/);
   assert.match(html, /Images and channels courtesy of/);
   assert.match(html, /href="https:\/\/rumble\.com\/"/);
   for (const c of F.CREATORS) {

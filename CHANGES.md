@@ -1,3 +1,16 @@
+# CHG-174: rename Featured on Rumble card title to Featured
+
+Prepared 2026-11-13, committed locally, not pushed, not deployed. Base `61dde3f` (CHG-173). The Milliway side-column card title, and the matching `/admin` section heading (also the accessible name via `aria-labelledby="h-feat"`), change from "Featured on Rumble" to "Featured". The bottom credit stays exactly "Images and channels courtesy of Rumble". No layout, logic, API (`GET /api/featured`), or `lib/featured.js` behavior change. The title is now platform-agnostic; Twitch, X, and YouTube sources are planned later. `/login` and `/auth` are untouched. `server.js` is not changed, so a pm2 restart is not required after `git pull`. Admin HTML is sent with `sendFile` on each request.
+
+| File | Change |
+|---|---|
+| `public/index.html` | Visible card `<h3>` is now "Featured". Credit line, layout, and scripts unchanged. |
+| `admin/admin.html` | Section `<h2 id="h-feat">` is now "Featured" (also the accessible name). |
+| `test/featured.test.js` | Asserts `<h3>Featured</h3>` instead of the old title string. |
+| `README.md` | Feature section title and card name. |
+
+Deploy: `git pull` in `~/chat-app`. **No pm2 restart.** Rollback: `git revert <hash>` (no restart).
+
 # CHG-173: read-only /admin console
 
 Prepared 2026-11-12, committed locally, not pushed, not deployed. Base `82adb0f` (CHG-172). First version of the admin console Andy approved: one private page at `/admin` (and two JSON reads, `/api/admin/overview` and `/api/admin/audit`) that replaces the things done by hand today with a view only. Nothing can be changed from it. It shows: **Live room** (members vs guests, public display names, messages per minute / last 5 minutes / last 15 minute chart, Chat pause state and who set it, Tailgate "playing", edit mode, whisper setting only), **Server health** (start time, uptime, process and system memory, load, Node version, running vs on-disk git commit with a "restart needed" hint), **Tailgate** (mode, override, source, embed id, Twitch, polling, and only a yes/no for "token configured"), **Featured on Rumble** (cached live flags; it does not start a Rumble check), and an **Audit log** (in-memory ring of the last 200 events: Tailgate changes, Chat pause flips, Tailgate play flips, edit mode on/off, admin page views, server start). Access is the existing owner check (`lib/username.js` `isOwnerAccountEmail`, a SHA-256 of the account email) on the existing `nest_member` cookie; anyone else (guest, another member, stale or forged cookie, no cookie, or remember-me off) gets the app's normal 404, byte for byte what an unknown path returns. `GET`/`HEAD` only (every other verb is a 404), noindex (header and meta), `no-store`, strict CSP (no inline script or style), no link from any public page, owner requests limited to 120 a minute (429). Chat lines, whispers, emails, socket ids and the Tailgate token never appear; the audit ring only accepts a fixed list of short fields. The page follows the CHG-170/172 Light / Dark pill (`aff-nest-theme`). `/login` and `/auth` are untouched. The page files live in `admin/`, not `public/`, so the static server cannot serve them.
