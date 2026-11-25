@@ -1,3 +1,14 @@
+# CHG-175: loosen Milliway Neagle system prompt
+
+Prepared 2026-11-25, committed locally, not pushed, not deployed. Base `eb4d59c` (CHG-174). Loosens `NEAGLE_SYSTEM_PROMPT` in `server.js` so Milliway's Neagle is less restricted: drops the 2–3 sentence cap, the ban on the Milliway / end-of-the-universe theme, the "never bring up the joke" rule, the "you are not support docs" line, and the "do not invent lore" restriction, and lets Neagle talk openly about anything people bring up (news, ideas, jokes, the Hitchhiker's / Milliway theme, opinions), while keeping "don't make things up" and adding `/tell` to the room commands list. `lib/support.js` (the support-session add-on and 988/911 crisis reminder), `askNeagle` request parameters (`model: 'grok-3'`, `temperature: 0.8`, `max_tokens: 150`), and `/login` / `/auth` are unchanged.
+
+| File | Change |
+|---|---|
+| `server.js` | Updated `NEAGLE_SYSTEM_PROMPT` template literal with the looser prompt text; `askNeagle` parameters (`max_tokens: 150`) and all routes untouched. |
+| `test/neagle-prompt.test.js` (new), `package.json` | Verifies key lines of the new prompt, absence of the removed bans, and that `support.systemPromptFor` still appends the 988/911 support add-on. |
+
+Deploy: `git pull` in `~/chat-app`, then **`pm2 restart "Eagles Nest"`** (`server.js` changed). Rollback: `git revert <hash>` then pm2 restart.
+
 # CHG-174: rename Featured on Rumble card title to Featured
 
 Prepared 2026-11-13, committed locally, not pushed, not deployed. Base `61dde3f` (CHG-173). The Milliway side-column card title, and the matching `/admin` section heading (also the accessible name via `aria-labelledby="h-feat"`), change from "Featured on Rumble" to "Featured". The bottom credit stays exactly "Images and channels courtesy of Rumble". No layout, logic, API (`GET /api/featured`), or `lib/featured.js` behavior change. The title is now platform-agnostic; Twitch, X, and YouTube sources are planned later. `/login` and `/auth` are untouched. `server.js` is not changed, so a pm2 restart is not required after `git pull`. Admin HTML is sent with `sendFile` on each request.
