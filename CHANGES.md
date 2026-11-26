@@ -1,3 +1,18 @@
+# CHG-176: coturn TURN relay and short-lived ICE credentials for Go Live
+
+Prepared 2026-11-25, committed locally, not pushed, not deployed. Base `2f6050b` (CHG-175). Adds a `coturn` VPS setup script (`tools/setup-coturn.sh`) and short-lived coturn REST credentials (`GET /api/ice-servers`, `lib/turn.js`) so Milliway Go Live WebRTC streams traverse restrictive cellular NATs/firewalls. Falls back seamlessly to Google STUN when `TURN_SECRET` is unset. `/login` and `/auth` are untouched.
+
+| File | Change |
+|---|---|
+| `tools/setup-coturn.sh` (new) | Idempotent Ubuntu 24.04 script: installs `coturn`, enables `use-auth-secret` (`realm=chat.afirstflag.com`), listens on 3478 UDP/TCP and 5349 TLS (reusing Let's Encrypt certs via `/etc/coturn/certs` + renewal deploy hook when present), sets relay range `49152-65535`, blocks private/loopback peer IPs, opens `ufw` if active, and stores `TURN_SECRET` only in `/etc/turnserver.conf` and `.env` without printing it. |
+| `lib/turn.js` (new) | Computes coturn REST HMAC-SHA1 `username` (`<expiry>:milliway`, default TTL 3600 s) and `credential`, builds `iceServers` (STUN + TURN UDP/TCP, plus TURNS when `TURN_TLS=1`), and serves `GET /api/ice-servers` (30/min per client, `Cache-Control: no-store`, same-origin/localhost gate). |
+| `server.js` | Mounts `GET /api/ice-servers` before global `cors()`. |
+| `public/index.html` | Replaces static `RTC_CONFIG` with `refreshIceServers()` fetching `/api/ice-servers` (2.5 s timeout, `DEFAULT_RTC_CONFIG` fallback when TURN is off or unreachable). |
+| `.env.example` | Documents `TURN_SECRET`, `TURN_HOST`, `TURN_PORT`, `TURN_TLS`, `TURN_TLS_PORT`, `TURN_TTL_SEC`. |
+| `test/turn.test.js`, `test/turn.server.test.js` (new), `package.json` | Unit, script dry-run, and `server.js` integration tests for credential HMAC, fallback, rate limits, and non-leakage of `TURN_SECRET`. |
+
+Deploy: `git pull` in `~/chat-app`, run `sudo bash tools/setup-coturn.sh`, then **`pm2 restart "Eagles Nest"`** (`server.js` changed). Rollback: `git revert <hash>` then pm2 restart (and `sudo systemctl disable --now coturn` if needed).
+
 # CHG-175: loosen Milliway Neagle system prompt
 
 Prepared 2026-11-25, committed locally, not pushed, not deployed. Base `eb4d59c` (CHG-174). Loosens `NEAGLE_SYSTEM_PROMPT` in `server.js` so Milliway's Neagle is less restricted: drops the 2–3 sentence cap, the ban on the Milliway / end-of-the-universe theme, the "never bring up the joke" rule, the "you are not support docs" line, and the "do not invent lore" restriction, and lets Neagle talk openly about anything people bring up (news, ideas, jokes, the Hitchhiker's / Milliway theme, opinions), while keeping "don't make things up" and adding `/tell` to the room commands list. `lib/support.js` (the support-session add-on and 988/911 crisis reminder), `askNeagle` request parameters (`model: 'grok-3'`, `temperature: 0.8`, `max_tokens: 150`), and `/login` / `/auth` are unchanged.

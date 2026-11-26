@@ -1239,7 +1239,36 @@
   <script src="/keystroke-limits.js"></script>
   <script>
     const socket = io();
-    const RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    const DEFAULT_RTC_CONFIG = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    const ICE_REFRESH_MS = 30 * 60 * 1000;
+    let rtcConfig = DEFAULT_RTC_CONFIG;
+    let rtcConfigFetchedAt = 0;
+    let rtcConfigInflight = null;
+
+    function refreshIceServers(force) {
+      if (!force && rtcConfigFetchedAt && (Date.now() - rtcConfigFetchedAt) < ICE_REFRESH_MS) {
+        return Promise.resolve(rtcConfig);
+      }
+      if (rtcConfigInflight) return rtcConfigInflight;
+      var ac = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timer = ac ? setTimeout(function () { ac.abort(); }, 2500) : null;
+      rtcConfigInflight = fetch('/api/ice-servers', { cache: 'no-store', signal: ac ? ac.signal : undefined })
+        .then(function (r) { return r && r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (d && Array.isArray(d.iceServers) && d.iceServers.length) {
+            rtcConfig = { iceServers: d.iceServers };
+            rtcConfigFetchedAt = Date.now();
+          }
+          return rtcConfig;
+        })
+        .catch(function () { return rtcConfig; })
+        .finally(function () {
+          if (timer) clearTimeout(timer);
+          rtcConfigInflight = null;
+        });
+      return rtcConfigInflight;
+    }
+    refreshIceServers(true);
 
     let localStream = null;
     let audioTrack = null;
@@ -1488,6 +1517,7 @@
     }
 
     async function startCamera() {
+      refreshIceServers(false);
       setStatus('Asking for camera and microphone…');
       localStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -1498,6 +1528,7 @@
     }
 
     async function startScreen() {
+      refreshIceServers(false);
       setStatus('Pick a screen or window…');
       const display = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30 },
@@ -1557,7 +1588,7 @@
 
     function ensurePeer(id, asOfferer) {
       if (peers.has(id)) return peers.get(id);
-      const pc = new RTCPeerConnection(RTC_CONFIG);
+      const pc = new RTCPeerConnection(rtcConfig);
       peers.set(id, pc);
       if (localStream) {
         localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
@@ -1583,16 +1614,18 @@
       return pc;
     }
 
-    socket.on('user-live', (info) => {
+    socket.on('user-live', async (info) => {
       if (amLive) return;
       setStatus(info.username + ' is live (' + info.kind + '). Connecting…');
+      await refreshIceServers(false);
       socket.emit('watch-live', { broadcasterId: info.socketId });
     });
 
-    socket.on('live-state', (list) => {
+    socket.on('live-state', async (list) => {
       if (!list || !list.length || amLive) return;
       const info = list[0];
       setStatus(info.username + ' is already live.');
+      await refreshIceServers(false);
       socket.emit('watch-live', { broadcasterId: info.socketId });
     });
 

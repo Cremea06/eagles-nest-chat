@@ -32,6 +32,7 @@ const keyGate = require('./lib/keystrokeGate'); // CHG-141
 const { rateKey } = require('./lib/safeLink');
 const { createAudit } = require('./lib/adminAudit'); // CHG-173
 const { createAdminConsole, createMessageRate } = require('./lib/adminConsole'); // CHG-173
+const turn = require('./lib/turn'); // CHG-176
 
 const app = express();
 const server = http.createServer(app);
@@ -116,6 +117,11 @@ app.all('/api/featured', featuredApi.handler);
 // CHG-164: GET /api/repo-version -> {available, sha?, date?, url?} for the Build-your-own card (GitHub main tip, 1 h cache, 30/min).
 const repoVersion = createRepoVersion();
 app.all('/api/repo-version', (req, res) => repoVersion.handler(req, res));
+
+// CHG-176: GET /api/ice-servers -> STUN + short-lived coturn REST credentials when TURN_SECRET is set.
+app.all('/api/ice-servers', turn.iceServersRoute({
+  originOk: (o) => memberOriginOk(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o)
+}));
 // Lazy fetch on first GET (warm() also available). Never block listen.
 tailgateState.onChange((st) => {
   io.emit('tailgate:state', st);
