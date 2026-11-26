@@ -1259,6 +1259,9 @@
             rtcConfig = { iceServers: d.iceServers };
             rtcConfigFetchedAt = Date.now();
           }
+          if (d && d.mediamtx && typeof d.mediamtx === 'object') {
+            mtxConfig = { enabled: !!d.mediamtx.enabled, base: d.mediamtx.base || '/mtx' };
+          }
           return rtcConfig;
         })
         .catch(function () { return rtcConfig; })
@@ -1269,6 +1272,12 @@
       return rtcConfigInflight;
     }
     refreshIceServers(true);
+    let mtxConfig = { enabled: false, base: '/mtx' };
+    socket.on('live:config', (cfg) => {
+      if (cfg && typeof cfg === 'object') {
+        mtxConfig = { enabled: !!cfg.enabled, base: cfg.base || '/mtx' };
+      }
+    });
 
     let localStream = null;
     let audioTrack = null;
@@ -1489,7 +1498,74 @@
 
 
 
-    function stopLocal() {
+    let whipSession = null;
+    let whepSession = null;
+
+    function parseOfferSdp(sdp) {
+      const ret = { iceUfrag: '', icePwd: '', medias: [] };
+      for (const line of String(sdp || '').split(/\r?\n/)) {
+        if (line.startsWith('m=')) ret.medias.push(line.slice(2));
+        else if (!ret.iceUfrag && line.startsWith('a=ice-ufrag:')) ret.iceUfrag = line.slice(12);
+        else if (!ret.icePwd && line.startsWith('a=ice-pwd:')) ret.icePwd = line.slice(10);
+      }
+      return ret;
+    }
+
+    function buildTrickleIceFrag(od, candidates) {
+      const byMid = {};
+      for (const c of candidates) {
+        if (!c || !c.candidate) continue;
+        const idx = c.sdpMLineIndex != null ? c.sdpMLineIndex : 0;
+        if (!byMid[idx]) byMid[idx] = [];
+        byMid[idx].push(c);
+      }
+      let frag = `a=ice-ufrag:${od.iceUfrag}\r\na=ice-pwd:${od.icePwd}\r\n`;
+      for (let i = 0; i < od.medias.length; i++) {
+        if (!byMid[i]) continue;
+        frag += `m=${od.medias[i]}\r\na=mid:${i}\r\n`;
+        for (const c of byMid[i]) frag += `a=${c.candidate}\r\n`;
+      }
+      return frag;
+    }
+
+    function sendTrickleIce(sessionUrl, offerData, candidates, token) {
+      const valid = candidates.filter(c => c && c.candidate);
+      if (!valid.length || !sessionUrl || !offerData) return;
+      const headers = { 'Content-Type': 'application/trickle-ice-sdpfrag', 'If-Match': '*' };
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      fetch(sessionUrl, {
+        method: 'PATCH',
+        headers,
+        body: buildTrickleIceFrag(offerData, valid)
+      }).catch(() => {});
+    }
+
+    function closeWhipSession() {
+      const s = whipSession;
+      whipSession = null;
+      if (!s) return;
+      s.closed = true;
+      try { if (s.pc) s.pc.close(); } catch {}
+      if (s.sessionUrl) {
+        const headers = s.token ? { Authorization: 'Bearer ' + s.token } : {};
+        fetch(s.sessionUrl, { method: 'DELETE', headers, keepalive: true }).catch(() => {});
+      }
+    }
+
+    function closeWhepSession() {
+      const s = whepSession;
+      whepSession = null;
+      if (!s) return;
+      s.closed = true;
+      if (s.retryTimer) clearTimeout(s.retryTimer);
+      try { if (s.pc) s.pc.close(); } catch {}
+      if (s.sessionUrl) {
+        fetch(s.sessionUrl, { method: 'DELETE', keepalive: true }).catch(() => {});
+      }
+    }
+
+    function stopLocal(statusText) {
+      closeWhipSession();
       if (localStream) localStream.getTracks().forEach(t => t.stop());
       localStream = null;
       audioTrack = null;
@@ -1499,9 +1575,12 @@
       muteBtn.textContent = 'Mute mic';
       for (const pc of peers.values()) pc.close();
       peers.clear();
-      if (amLive) socket.emit('end-live');
+      if (amLive) {
+        socket.emit('end-live');
+        socket.emit('live:cancel-prepare');
+      }
       setLiveUI(false);
-      setStatus('Stream ended.');
+      setStatus(typeof statusText === 'string' ? statusText : 'Stream ended.');
     }
 
     async function getMicTracks() {
@@ -1542,11 +1621,162 @@
       attachLocal('screen', 'Screen is live.');
     }
 
-    function attachLocal(kind, okText) {
+    async function startWhipPublish(stream, whipUrl, token) {
+      closeWhepSession();
+      closeWhipSession();
+      const sess = { pc: null, sessionUrl: null, offerData: null, queued: [], token, closed: false };
+      whipSession = sess;
+      const pc = new RTCPeerConnection(rtcConfig);
+      sess.pc = pc;
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+      pc.onicecandidate = (e) => {
+        if (sess.closed || !e.candidate) return;
+        if (!sess.sessionUrl) sess.queued.push(e.candidate);
+        else sendTrickleIce(sess.sessionUrl, sess.offerData, [e.candidate], token);
+      };
+      pc.onconnectionstatechange = () => {
+        if (sess.closed) return;
+        if (pc.connectionState === 'failed') setStatus('Broadcast connection lost.', 'err');
+      };
+      const offer = await pc.createOffer();
+      sess.offerData = parseOfferSdp(offer.sdp);
+      await pc.setLocalDescription(offer);
+      const res = await fetch(whipUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/sdp'
+        },
+        body: offer.sdp
+      });
+      if (sess.closed) throw new Error('cancelled');
+      if (res.status !== 201) throw new Error('Publish refused (' + res.status + ')');
+      const loc = res.headers.get('location');
+      if (!loc) throw new Error('Missing WHIP Location');
+      sess.sessionUrl = new URL(loc, new URL(whipUrl, location.href)).toString();
+      const answerSdp = await res.text();
+      if (sess.closed) throw new Error('cancelled');
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+      if (sess.queued.length) {
+        sendTrickleIce(sess.sessionUrl, sess.offerData, sess.queued.splice(0), token);
+      }
+    }
+
+    async function startWhepWatch(whepUrl, attempt) {
+      const tryNum = attempt || 0;
+      if (tryNum === 0) closeWhepSession();
+      if (amLive) return;
+      const sess = { pc: null, sessionUrl: null, offerData: null, queued: [], retryTimer: null, closed: false };
+      whepSession = sess;
+      try {
+        const pc = new RTCPeerConnection(rtcConfig);
+        sess.pc = pc;
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        pc.onicecandidate = (e) => {
+          if (sess.closed || !e.candidate) return;
+          if (!sess.sessionUrl) sess.queued.push(e.candidate);
+          else sendTrickleIce(sess.sessionUrl, sess.offerData, [e.candidate]);
+        };
+        pc.ontrack = (e) => {
+          if (amLive || sess.closed) return;
+          preview.srcObject = e.streams[0] || new MediaStream([e.track]);
+          preview.muted = false;
+          preview.play().catch((err) => {
+            if (err && err.name === 'NotAllowedError') {
+              preview.muted = true;
+              preview.play().catch(() => {});
+              setStatus('Watching live stream (tap video for sound).', 'ok');
+            }
+          });
+          viewport.classList.add('streaming');
+          liveBadge.classList.add('on');
+          if (!preview.muted) setStatus('Watching live stream.', 'ok');
+        };
+        const offer = await pc.createOffer();
+        sess.offerData = parseOfferSdp(offer.sdp);
+        await pc.setLocalDescription(offer);
+        const res = await fetch(whepUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp' },
+          body: offer.sdp
+        });
+        if (sess.closed) return;
+        if (res.status === 404 && tryNum < 12) {
+          try { pc.close(); } catch {}
+          sess.retryTimer = setTimeout(() => {
+            if (!sess.closed && whepSession === sess && !amLive) startWhepWatch(whepUrl, tryNum + 1);
+          }, 1000);
+          return;
+        }
+        if (res.status !== 201) throw new Error('Watch failed (' + res.status + ')');
+        const loc = res.headers.get('location');
+        if (!loc) throw new Error('Missing WHEP Location');
+        sess.sessionUrl = new URL(loc, new URL(whepUrl, location.href)).toString();
+        const answerSdp = await res.text();
+        if (sess.closed) return;
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+        if (sess.queued.length) {
+          sendTrickleIce(sess.sessionUrl, sess.offerData, sess.queued.splice(0));
+        }
+      } catch (err) {
+        if (!sess.closed && whepSession === sess) {
+          setStatus((err && err.message) || 'Could not watch stream.', 'err');
+        }
+      }
+    }
+
+    preview.addEventListener('click', () => {
+      if (!amLive && preview.srcObject && preview.muted) {
+        preview.muted = false;
+        preview.play().catch(() => {});
+        setStatus('Watching live stream.', 'ok');
+      }
+    });
+
+    window.addEventListener('beforeunload', () => {
+      closeWhipSession();
+      closeWhepSession();
+    });
+
+    function prepareLiveSession(kind) {
+      return new Promise((resolve) => {
+        socket.emit('live:prepare', { kind }, (resp) => resolve(resp || { ok: false }));
+      });
+    }
+
+    async function attachLocal(kind, okText) {
+      closeWhepSession();
       preview.srcObject = localStream;
       preview.muted = true;
       preview.play().catch(() => {});
       setLiveUI(true);
+      if (mtxConfig.enabled) {
+        setStatus('Connecting broadcast…');
+        try {
+          await refreshIceServers(false);
+          const prep = await prepareLiveSession(kind);
+          if (!amLive) return;
+          if (!prep || !prep.ok || !prep.whipUrl || !prep.token) {
+            throw new Error((prep && prep.error) || 'Could not start broadcast');
+          }
+          await startWhipPublish(localStream, prep.whipUrl, prep.token);
+          if (!amLive) return;
+          setStatus(okText, 'ok');
+          socket.emit('go-live', {
+            kind,
+            allowClips: document.getElementById('clipAllow').checked,
+            streamKey: prep.streamKey
+          });
+        } catch (err) {
+          if (amLive) {
+            socket.emit('live:cancel-prepare');
+            stopLocal((err && err.message) || 'Could not publish live stream.');
+            liveStatus.className = 'live-status err';
+          }
+        }
+        return;
+      }
       setStatus(okText, 'ok');
       socket.emit('go-live', { kind, allowClips: document.getElementById('clipAllow').checked }); // CHG-134
     }
@@ -1615,10 +1845,15 @@
     }
 
     socket.on('user-live', async (info) => {
-      if (amLive) return;
+      if (amLive || !info) return;
       setStatus(info.username + ' is live (' + info.kind + '). Connecting…');
       await refreshIceServers(false);
-      socket.emit('watch-live', { broadcasterId: info.socketId });
+      if (amLive) return;
+      if (info.mode === 'mediamtx' && info.whepUrl) {
+        startWhepWatch(info.whepUrl, 0);
+      } else {
+        socket.emit('watch-live', { broadcasterId: info.socketId });
+      }
     });
 
     socket.on('live-state', async (list) => {
@@ -1626,7 +1861,12 @@
       const info = list[0];
       setStatus(info.username + ' is already live.');
       await refreshIceServers(false);
-      socket.emit('watch-live', { broadcasterId: info.socketId });
+      if (amLive) return;
+      if (info.mode === 'mediamtx' && info.whepUrl) {
+        startWhepWatch(info.whepUrl, 0);
+      } else {
+        socket.emit('watch-live', { broadcasterId: info.socketId });
+      }
     });
 
     socket.on('watch-request', (data) => {
@@ -1654,6 +1894,7 @@
 
     socket.on('user-ended-live', () => {
       if (amLive) return;
+      closeWhepSession();
       for (const pc of peers.values()) pc.close();
       peers.clear();
       preview.srcObject = null;

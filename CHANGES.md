@@ -1,3 +1,19 @@
+# CHG-177: MediaMTX one-upload WHIP/WHEP SFU for Go Live
+
+Prepared 2026-11-25, committed locally, not pushed, not deployed. Base `cf67cde` (CHG-176). Replaces peer-to-peer fanout with a single WHIP upload to MediaMTX (`v1.21.4`) and public WHEP playback for viewers when `MEDIAMTX_ENABLED=1`, keeping P2P as fallback when unset. `allowClips`, `setLiveUI`, Tailgate interplay, `End live`, room announcements, and `/login` / `/auth` stay intact.
+
+| File | Change |
+|---|---|
+| `tools/setup-mediamtx.sh` (new) | Idempotent Ubuntu 24.04 script: downloads pinned MediaMTX `v1.21.4` (SHA-256 verified), installs systemd service `mediamtx`, limits paths to `~^live/[A-Za-z0-9_-]{8,32}$`, wires HTTP auth hook + WebRTC UDP port `8189` + coturn TURN (`AUTH_SECRET`), opens `ufw` `8189/udp`, and writes `MEDIAMTX_ENABLED=1`, `MEDIAMTX_PUBLIC_BASE=/mtx`, `MEDIAMTX_AUTH_SECRET` into `.env` without printing secrets. |
+| `tools/nginx-mediamtx.conf` (new) | Documented nginx `location /mtx/` reverse-proxy snippet (with `proxy_redirect / /mtx/`) and `location = /api/mediamtx/auth { return 404; }`. |
+| `lib/mediamtx.js` (new) | Per-session `live/<streamkey>` + publish token store and loopback-only `POST /api/mediamtx/auth` hook (enforces publish token + connected/unmuted socket, allows public read on `live/<streamkey>`, rejects other paths/actions and proxied requests). |
+| `server.js` | Mounts `/api/mediamtx/auth`, emits `live:config`, includes `mediamtx` flag in `GET /api/ice-servers`, adds `live:prepare` / `live:cancel-prepare`, activates sessions in `go-live`, and revokes tokens on `end-live` / `disconnect`. |
+| `public/index.html` | Publishes via WHIP and watches via WHEP when `mtxConfig.enabled` is true; falls back to P2P otherwise; keeps `setLiveUI`, Tailgate hiding, `allowClips`, and `End live`. |
+| `.env.example` | Documents `MEDIAMTX_ENABLED`, `MEDIAMTX_PUBLIC_BASE`, `MEDIAMTX_AUTH_SECRET`. |
+| `test/mediamtx.test.js`, `test/mediamtx.server.test.js` (new), `package.json` | Unit, setup-script dry-run, and `server.js` tests for token issuing, auth hook, revocation, and P2P fallback. |
+
+Deploy: `git pull` in `~/chat-app`, run `sudo bash tools/setup-mediamtx.sh`, add `tools/nginx-mediamtx.conf` to nginx and reload nginx, then **`pm2 restart "Eagles Nest"`** (`server.js` changed). Rollback: set `MEDIAMTX_ENABLED=0` + `pm2 restart "Eagles Nest"` (instant P2P fallback), or `git revert <hash>` + restart.
+
 # CHG-176: coturn TURN relay and short-lived ICE credentials for Go Live
 
 Prepared 2026-11-25, committed locally, not pushed, not deployed. Base `2f6050b` (CHG-175). Adds a `coturn` VPS setup script (`tools/setup-coturn.sh`) and short-lived coturn REST credentials (`GET /api/ice-servers`, `lib/turn.js`) so Milliway Go Live WebRTC streams traverse restrictive cellular NATs/firewalls. Falls back seamlessly to Google STUN when `TURN_SECRET` is unset. `/login` and `/auth` are untouched.

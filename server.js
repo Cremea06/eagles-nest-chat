@@ -33,6 +33,7 @@ const { rateKey } = require('./lib/safeLink');
 const { createAudit } = require('./lib/adminAudit'); // CHG-173
 const { createAdminConsole, createMessageRate } = require('./lib/adminConsole'); // CHG-173
 const turn = require('./lib/turn'); // CHG-176
+const mediamtx = require('./lib/mediamtx'); // CHG-177
 
 const app = express();
 const server = http.createServer(app);
@@ -119,8 +120,18 @@ const repoVersion = createRepoVersion();
 app.all('/api/repo-version', (req, res) => repoVersion.handler(req, res));
 
 // CHG-176: GET /api/ice-servers -> STUN + short-lived coturn REST credentials when TURN_SECRET is set.
+const liveSessions = mediamtx.createLiveSessionStore({
+  isSocketAllowed: (socketId) => {
+    const s = io.of('/').sockets.get(socketId);
+    if (!s || !s.connected || !s.username) return false;
+    if (s.mutedUntil && Date.now() < s.mutedUntil) return false;
+    return true;
+  }
+});
+app.all('/api/mediamtx/auth', mediamtx.authRoute({ store: liveSessions }));
 app.all('/api/ice-servers', turn.iceServersRoute({
-  originOk: (o) => memberOriginOk(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o)
+  originOk: (o) => memberOriginOk(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o),
+  extraPayload: () => ({ mediamtx: mediamtx.getPublicConfig() })
 }));
 // Lazy fetch on first GET (warm() also available). Never block listen.
 tailgateState.onChange((st) => {
@@ -1442,6 +1453,7 @@ app.use(createAdminConsole({
 
 io.on('connection', (socket) => {
   socket.emit('tailgate:state', tailgateState.get()); // CHG-133
+  socket.emit('live:config', mediamtx.getPublicConfig()); // CHG-177
   // CHG-134: clip session for this connection (dropped on disconnect)
   socket.clipToken = crypto.randomBytes(32).toString('base64url');
   clipSessions.set(socket.clipToken, socket);
@@ -1498,7 +1510,12 @@ io.on('connection', (socket) => {
     socket.emit('usage', usagePayload());
     const currentLive = [];
     for (const [id, info] of liveBroadcasters) {
-      currentLive.push({ socketId: id, username: info.username, kind: info.kind });
+      const entry = { socketId: id, username: info.username, kind: info.kind, mode: info.mode || 'p2p' };
+      if (info.mode === 'mediamtx' && info.whepUrl) {
+        entry.streamPath = info.streamPath;
+        entry.whepUrl = info.whepUrl;
+      }
+      currentLive.push(entry);
     }
     if (currentLive.length) socket.emit('live-state', currentLive);
 
@@ -1816,6 +1833,32 @@ io.on('connection', (socket) => {
     }
   });
 
+  // CHG-177: issue a per-session MediaMTX stream key and publish token before WHIP starts.
+  socket.on('live:prepare', (data = {}, cb) => {
+    const ack = typeof cb === 'function' ? cb : () => {};
+    const mtx = mediamtx.getPublicConfig();
+    if (!mtx.enabled) return ack({ ok: false, error: 'mediamtx_disabled' });
+    if (!socket.username) return ack({ ok: false, error: 'not_joined' });
+    if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
+      socket.emit('system', 'You are muted. Cannot go live.');
+      return ack({ ok: false, error: 'muted' });
+    }
+    const sess = liveSessions.issue({ socketId: socket.id, username: socket.username });
+    const urls = mediamtx.buildStreamUrls(mtx.base, sess.streamPath);
+    return ack({
+      ok: true,
+      streamKey: sess.streamKey,
+      streamPath: sess.streamPath,
+      token: sess.token,
+      whipUrl: urls.whipUrl,
+      whepUrl: urls.whepUrl
+    });
+  });
+
+  socket.on('live:cancel-prepare', () => {
+    if (!liveBroadcasters.has(socket.id)) liveSessions.revokeSocket(socket.id);
+  });
+
   socket.on('go-live', (data = {}) => {
     if (!socket.username) return;
     if (socket.mutedUntil && Date.now() < socket.mutedUntil) {
@@ -1823,12 +1866,40 @@ io.on('connection', (socket) => {
       return;
     }
     const kind = data.kind === 'screen' ? 'screen' : 'camera';
-    liveBroadcasters.set(socket.id, { username: socket.username, kind, allowClips: data.allowClips === true }); // CHG-134: default off
-    socket.broadcast.emit('user-live', {
-      socketId: socket.id,
-      username: socket.username,
-      kind
-    });
+    const mtx = mediamtx.getPublicConfig();
+    if (mtx.enabled && typeof data.streamKey === 'string' && data.streamKey) {
+      const sess = liveSessions.activate(socket.id, data.streamKey);
+      if (!sess) {
+        socket.emit('system', 'Could not verify live broadcast session.');
+        return;
+      }
+      const urls = mediamtx.buildStreamUrls(mtx.base, sess.streamPath);
+      liveBroadcasters.set(socket.id, {
+        username: socket.username,
+        kind,
+        allowClips: data.allowClips === true,
+        mode: 'mediamtx',
+        streamKey: sess.streamKey,
+        streamPath: sess.streamPath,
+        whepUrl: urls.whepUrl
+      });
+      socket.broadcast.emit('user-live', {
+        socketId: socket.id,
+        username: socket.username,
+        kind,
+        mode: 'mediamtx',
+        streamPath: sess.streamPath,
+        whepUrl: urls.whepUrl
+      });
+    } else {
+      liveBroadcasters.set(socket.id, { username: socket.username, kind, allowClips: data.allowClips === true, mode: 'p2p' }); // CHG-134: default off
+      socket.broadcast.emit('user-live', {
+        socketId: socket.id,
+        username: socket.username,
+        kind,
+        mode: 'p2p'
+      });
+    }
     io.emit('system', `${socket.username} went live (${kind})`);
     emitClipContext(); // CHG-134
   });
@@ -1849,6 +1920,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('end-live', () => {
+    liveSessions.revokeSocket(socket.id);
     const info = liveBroadcasters.get(socket.id);
     if (!info) return;
     liveBroadcasters.delete(socket.id);
@@ -1877,6 +1949,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    liveSessions.revokeSocket(socket.id);
     const live = liveBroadcasters.get(socket.id);
     if (live) {
       liveBroadcasters.delete(socket.id);
